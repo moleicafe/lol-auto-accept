@@ -31,7 +31,7 @@ async def make_fake_lcu():
     app.router.add_get("/", ws_handler)
     app.router.add_get("/lol-gameflow/v1/gameflow-phase", phase)
     server = TestServer(app, host="127.0.0.1")
-    await server.start_server()
+    await server.start_server(shutdown_timeout=0.1)
     return server
 
 
