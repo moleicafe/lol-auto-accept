@@ -48,6 +48,9 @@ def load(path: Path | None = None) -> Config:
     path = path or config_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            log.warning("Corrupt config at %s (not a JSON object); using defaults", path)
+            return Config()
         known = {f.name for f in dataclasses.fields(Config)}
         return Config(**{k: v for k, v in raw.items() if k in known})
     except FileNotFoundError:

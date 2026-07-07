@@ -30,3 +30,9 @@ def test_unknown_keys_ignored(tmp_path: Path):
     path.write_text('{"auto_accept": false, "some_future_key": 1}', encoding="utf-8")
     cfg = load(path)
     assert cfg.auto_accept is False
+
+
+def test_non_dict_json_returns_defaults(tmp_path: Path):
+    path = tmp_path / "config.json"
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+    assert load(path) == Config()
