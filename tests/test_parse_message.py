@@ -4,8 +4,8 @@ from laa.lcu import events
 from laa.lcu.connector import _parse_message
 
 
-def wrap(uri, data):
-    return json.dumps([8, "OnJsonApiEvent", {"uri": uri, "eventType": "Update", "data": data}])
+def wrap(uri, data, event_type="Update"):
+    return json.dumps([8, "OnJsonApiEvent", {"uri": uri, "eventType": event_type, "data": data}])
 
 
 def test_gameflow_phase():
@@ -35,3 +35,12 @@ def test_garbage_returns_none():
 
 def test_ready_check_delete_event_with_null_data_returns_none():
     assert _parse_message(wrap("/lol-matchmaking/v1/ready-check", None)) is None
+
+
+def test_ready_check_delete_event_with_populated_data_returns_none():
+    raw = wrap(
+        "/lol-matchmaking/v1/ready-check",
+        {"state": "InProgress", "playerResponse": "None"},
+        event_type="Delete",
+    )
+    assert _parse_message(raw) is None

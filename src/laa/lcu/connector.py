@@ -16,8 +16,11 @@ def _parse_message(raw: str | bytes) -> events.LCUEvent | None:
         return None
     if not isinstance(msg, list) or len(msg) < 3 or msg[0] != 8 or not isinstance(msg[2], dict):
         return None
-    uri = msg[2].get("uri")
-    data = msg[2].get("data")
+    payload = msg[2]
+    if payload.get("eventType") == "Delete":
+        return None
+    uri = payload.get("uri")
+    data = payload.get("data")
     if uri == "/lol-gameflow/v1/gameflow-phase" and isinstance(data, str):
         return events.GameflowPhase(phase=data)
     if uri == "/lol-matchmaking/v1/ready-check" and isinstance(data, dict):
