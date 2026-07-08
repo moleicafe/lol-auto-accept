@@ -73,7 +73,7 @@ class ChampSelectAutomation:
                 log.warning("Champ select action failed: %s", exc)
 
     async def _do_ban(self, cfg: Config, session: dict, act: dict) -> None:
-        if self._bannable is None:
+        if not self._bannable:
             self._bannable = set(await self._lcu.get(
                 "/lol-champ-select/v1/bannable-champion-ids") or [])
         cid = selection.choose_ban(cfg.ban_ids, session, self._bannable)
@@ -85,7 +85,7 @@ class ChampSelectAutomation:
         log.info("Banned champion %s", cid)
 
     async def _do_pick(self, cfg: Config, session: dict, act: dict) -> None:
-        if self._pickable is None:
+        if not self._pickable:
             self._pickable = set(await self._lcu.get(
                 "/lol-champ-select/v1/pickable-champion-ids") or [])
         cid = selection.choose_pick(cfg.pick_ids, session, self._pickable)

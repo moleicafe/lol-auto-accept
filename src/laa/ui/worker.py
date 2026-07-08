@@ -28,6 +28,7 @@ class LCUWorker(threading.Thread):
             asyncio.run(self._main())
         except Exception:
             log.exception("LCU worker crashed")
+            self._bridge.status.emit("Stopped - please restart the app")
 
     async def _main(self) -> None:
         engine_ref: list[Engine] = []

@@ -104,6 +104,31 @@ async def test_on_locked_fires_once_with_position():
     assert locked == [(103, "jungle")]
 
 
+async def test_pick_refetches_when_pickable_initially_empty():
+    lcu = lcu_with(pickable=[])
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    s = make_session(actions=[[action(7, 0, "pick", in_progress=True)]])
+    await auto.on_session(s)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/7") == []
+    lcu.responses[PICKABLE] = [103, 245]
+    await auto.on_session(s)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/7") == [
+        ("PATCH", "/lol-champ-select/v1/session/actions/7", {"championId": 103})]
+
+
+async def test_ban_refetches_when_bannable_initially_empty():
+    lcu = lcu_with(bannable=[])
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    s = make_session(actions=[[action(5, 0, "ban", in_progress=True)]])
+    await auto.on_session(s)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5") == []
+    lcu.responses[BANNABLE] = [157, 238]
+    await auto.on_session(s)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5") == [
+        ("PATCH", "/lol-champ-select/v1/session/actions/5",
+         {"championId": 157, "completed": True})]
+
+
 async def test_paused_does_nothing():
     lcu = lcu_with()
     auto = ChampSelectAutomation(lcu, lambda: cfg(master_paused=True, lobby_message="hi",

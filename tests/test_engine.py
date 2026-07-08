@@ -42,7 +42,19 @@ async def test_connected_syncs_catalog_phase_and_status():
     await eng.on_event(events.Connected())
     assert catalog.refreshes == 1
     assert eng.phase == "Lobby"
-    assert statuses[-1] == "Connected"
+    assert statuses[-1] == "In lobby"
+
+
+async def test_connected_status_fires_even_when_catalog_refresh_fails():
+    lcu = FakeLCU({PHASE: "Lobby"})
+    eng, _, _, catalog, statuses = make_engine(lcu)
+
+    async def boom():
+        raise RuntimeError("kaput")
+
+    catalog.refresh = boom
+    await eng.on_event(events.Connected())
+    assert "Connected" in statuses
 
 
 async def test_ready_check_routed_and_reset_on_phase_change():
@@ -90,3 +102,10 @@ async def test_disconnected_status():
     eng, _, _, _, statuses = make_engine()
     await eng.on_event(events.Disconnected())
     assert statuses[-1] == "Waiting for League client"
+
+
+async def test_none_phase_notifies_friendly_label_not_literal_none():
+    eng, _, _, _, statuses = make_engine()
+    await eng.on_event(events.GameflowPhase(phase="None"))
+    assert eng.phase == "None"          # raw phase preserved for reset logic
+    assert statuses[-1] == "In client"  # but the notified status is friendly

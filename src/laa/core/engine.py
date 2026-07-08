@@ -10,6 +10,19 @@ from laa.lcu import events
 
 log = logging.getLogger(__name__)
 
+PHASE_LABELS = {
+    "None": "In client",
+    "Lobby": "In lobby",
+    "Matchmaking": "In queue",
+    "ReadyCheck": "Ready check!",
+    "ChampSelect": "Champ select",
+    "InProgress": "In game",
+    "WaitingForStats": "Game over",
+    "PreEndOfGame": "Game over",
+    "EndOfGame": "Game over",
+    "Reconnect": "Reconnecting",
+}
+
 
 class Engine:
     """Routes LCU events to automations; owns phase tracking and resets."""
@@ -32,11 +45,18 @@ class Engine:
     async def _dispatch(self, event: events.LCUEvent) -> None:
         match event:
             case events.Connected():
-                await self._catalog.refresh()
-                phase = await self._lcu.get("/lol-gameflow/v1/gameflow-phase")
+                try:
+                    await self._catalog.refresh()
+                except Exception as exc:
+                    log.warning("Catalog refresh failed on connect: %s", exc)
+                try:
+                    phase = await self._lcu.get("/lol-gameflow/v1/gameflow-phase")
+                except Exception as exc:
+                    log.warning("Phase sync failed on connect: %s", exc)
+                    phase = None
+                self._notify("Connected")
                 if isinstance(phase, str):
                     self._set_phase(phase)
-                self._notify("Connected")
             case events.Disconnected():
                 self._notify("Waiting for League client")
             case events.GameflowPhase(phase=phase):
@@ -54,4 +74,4 @@ class Engine:
         if phase != "ChampSelect":
             self._champ.reset()
         self.phase = phase
-        self._notify(phase)
+        self._notify(PHASE_LABELS.get(phase, phase))

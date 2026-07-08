@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import threading
 from pathlib import Path
 
 from laa import config as config_mod
 from laa.config import Config
+
+log = logging.getLogger(__name__)
 
 
 class ConfigStore:
@@ -22,5 +25,8 @@ class ConfigStore:
     def update(self, **changes) -> Config:
         with self._lock:
             self._cfg = dataclasses.replace(self._cfg, **changes)
-            config_mod.save(self._cfg, self._path)
+            try:
+                config_mod.save(self._cfg, self._path)
+            except OSError as exc:
+                log.warning("Failed to persist config: %s", exc)
             return self._cfg
