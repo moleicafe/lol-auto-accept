@@ -1,62 +1,72 @@
 import httpx
 
-from laa.runes.provider import Build, UGGProvider, parse_overview, to_ugg_version
+from laa.runes.provider import Build, OPGGProvider, parse_champion
 
-PERKS = [8112, 8143, 8138, 8135, 8009, 9105]
-SHARDS = ["5008", "5008", "5002"]
-
-
-def make_overview(role_id="5", matches=1000):
-    stats = [
-        [matches, 600, 8100, 8000, list(PERKS)],   # [0] perks: matches, wins, primary, sub, ids
-        [matches, 600, [4, 14]],                    # [1] summoner spells
-        None, None, None, None, None, None,         # [2..7] unused by us
-        [matches, 600, list(SHARDS)],               # [8] stat shards
-    ]
-    return {"12": {"10": {role_id: [stats]}}}
-
-
-def test_to_ugg_version():
-    assert to_ugg_version("15.13.1") == "15_13"
-    assert to_ugg_version("14.1.5") == "14_1"
+# One real op.gg "runes" entry (Ahri mid, 2026-07-08) plus a lower-play decoy.
+RUNE_TOP = {
+    "primary_page_id": 8100, "primary_rune_ids": [8112, 8139, 8140, 8106],
+    "secondary_page_id": 8200, "secondary_rune_ids": [8210, 8226],
+    "stat_mod_ids": [5005, 5008, 5001], "play": 9000, "win": 4500,
+}
+RUNE_DECOY = {
+    "primary_page_id": 8000, "primary_rune_ids": [8005, 9111, 9104, 8014],
+    "secondary_page_id": 8400, "secondary_rune_ids": [8444, 8453],
+    "stat_mod_ids": [5005, 5008, 5002], "play": 100, "win": 40,
+}
+EXPECTED_PERKS = [8112, 8139, 8140, 8106, 8210, 8226, 5005, 5008, 5001]
 
 
-def test_parse_overview_exact_role():
-    build = parse_overview(make_overview(role_id="5"), "middle")
-    assert build == Build(primary_style_id=8100, sub_style_id=8000,
-                          perk_ids=PERKS + [5008, 5008, 5002], spell_ids=(4, 14))
+def make_data(positions=("MID",)):
+    return {
+        "summary": {"positions": [{"name": n} for n in positions]},
+        "runes": [RUNE_DECOY, RUNE_TOP],                       # unordered on purpose
+        "summoner_spells": [{"ids": [4, 12], "play": 50},
+                            {"ids": [4, 14], "play": 9000}],   # highest play wins
+    }
 
 
-def test_parse_overview_falls_back_to_most_played_role():
-    data = {"12": {"10": {
-        "1": make_overview("1")["12"]["10"]["1"],
-    }}}
-    data["12"]["10"]["1"][0][0][0] = 5000  # jungle has the most games
-    build = parse_overview(data, "middle")  # middle absent -> jungle
-    assert build is not None
-    assert build.primary_style_id == 8100
+def test_parse_champion_picks_most_played_rune_and_spells():
+    build = parse_champion(make_data())
+    assert build == Build(primary_style_id=8100, sub_style_id=8200,
+                          perk_ids=EXPECTED_PERKS, spell_ids=(4, 14))
 
 
-def test_parse_overview_garbage_returns_none():
-    assert parse_overview({}, "middle") is None
-    assert parse_overview({"12": {"10": {}}}, "middle") is None
-    assert parse_overview({"12": {"10": {"5": [[]]}}}, "middle") is None
+def test_parse_champion_garbage_returns_none():
+    assert parse_champion({}) is None
+    assert parse_champion({"runes": [], "summoner_spells": []}) is None
+    assert parse_champion({"runes": [{"primary_page_id": 8100}],
+                           "summoner_spells": []}) is None  # missing rune fields
 
 
-async def test_get_build_via_mock_transport():
+async def test_get_build_maps_lcu_position_and_parses():
+    seen = {}
+
     def handler(request: httpx.Request) -> httpx.Response:
-        if "ddragon" in request.url.host:
-            return httpx.Response(200, json=["15.13.1", "15.12.1"])
-        assert "stats2.u.gg" in request.url.host
-        assert "/overview/15_13/ranked_solo_5x5/103/" in request.url.path
-        return httpx.Response(200, json=make_overview())
+        assert request.url.host == "lol-api-champion.op.gg"
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"data": make_data()})
 
-    provider = UGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    provider = OPGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     build = await provider.get_build(103, "middle")
+    assert seen["path"] == "/api/global/champions/ranked/103/mid"   # middle -> mid
     assert build is not None and build.spell_ids == (4, 14)
 
 
+async def test_get_build_unassigned_resolves_primary_position():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        # first call (probe) reports the champion's primary lane as SUPPORT
+        return httpx.Response(200, json={"data": make_data(positions=("SUPPORT",))})
+
+    provider = OPGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    build = await provider.get_build(412, "")           # unassigned
+    assert build is not None
+    assert calls[-1] == "/api/global/champions/ranked/412/support"  # resolved to support
+
+
 async def test_get_build_returns_none_on_http_error():
-    provider = UGGProvider(http=httpx.AsyncClient(
+    provider = OPGGProvider(http=httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(500))))
     assert await provider.get_build(103, "middle") is None

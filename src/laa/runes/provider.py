@@ -7,72 +7,78 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-# ---- U.GG constants (community-reverse-engineered; verified by scripts/probe_ugg.py) ----
-DDRAGON_VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
-UGG_OVERVIEW_URL = "https://stats2.u.gg/lol/1.5/overview/{version}/ranked_solo_5x5/{champion_id}/1.5.0.json"
-REGION_WORLD = "12"
-RANK_EMERALD_PLUS = "10"
-ROLE_IDS = {"jungle": "1", "utility": "2", "bottom": "3", "top": "4", "middle": "5"}
-IDX_PERKS = 0    # [matches, wins, primary_style, sub_style, [6 perk ids]]
-IDX_SPELLS = 1   # [matches, wins, [2 spell ids]]
-IDX_SHARDS = 8   # [matches, wins, [3 shard ids as strings]]
-# -----------------------------------------------------------------------------------------
+# ---- op.gg constants (reverse-engineered; verified live by scripts/probe_opgg.py) -------
+OPGG_URL = "https://lol-api-champion.op.gg/api/{region}/champions/ranked/{champion_id}/{position}"
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+# LCU assignedPosition -> op.gg position path segment
+POSITION_MAP = {"top": "top", "jungle": "jungle", "middle": "mid",
+                "bottom": "adc", "utility": "support"}
+# op.gg summary.positions[].name -> op.gg position path segment (for primary-lane fallback)
+PRIMARY_NAME_MAP = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid",
+                    "ADC": "adc", "SUPPORT": "support"}
+DEFAULT_POSITION = "mid"  # last-resort when an unassigned champion's primary can't be read
+# ----------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Build:
     primary_style_id: int
     sub_style_id: int
-    perk_ids: list[int]           # 6 runes + 3 stat shards, LCU order
+    perk_ids: list[int]           # 6 runes (4 primary + 2 secondary) + 3 stat shards, LCU order
     spell_ids: tuple[int, int]
 
 
-def to_ugg_version(riot_version: str) -> str:
-    major, minor, *_ = riot_version.split(".")
-    return f"{major}_{minor}"
-
-
-def parse_overview(data: dict, role: str) -> Build | None:
+def parse_champion(data: dict) -> Build | None:
     try:
-        rank = data[REGION_WORLD][RANK_EMERALD_PLUS]
-        role_id = ROLE_IDS.get(role)
-        if role_id not in rank:
-            if not rank:
-                return None
-            role_id = max(rank, key=lambda r: rank[r][0][IDX_PERKS][0])  # most games played
-        overview = rank[role_id][0]
-        perks = overview[IDX_PERKS]
-        spells = overview[IDX_SPELLS]
-        shards = overview[IDX_SHARDS]
+        runes = data.get("runes") or []
+        spells = data.get("summoner_spells") or []
+        if not runes or not spells:
+            return None
+        top = max(runes, key=lambda r: r.get("play", 0))
+        best_spells = max(spells, key=lambda s: s.get("play", 0))
+        perk_ids = ([int(p) for p in top["primary_rune_ids"]]
+                    + [int(p) for p in top["secondary_rune_ids"]]
+                    + [int(p) for p in top["stat_mod_ids"]])
+        spell_ids = (int(best_spells["ids"][0]), int(best_spells["ids"][1]))
         return Build(
-            primary_style_id=int(perks[2]),
-            sub_style_id=int(perks[3]),
-            perk_ids=[int(p) for p in perks[4]] + [int(s) for s in shards[2]],
-            spell_ids=(int(spells[2][0]), int(spells[2][1])),
+            primary_style_id=int(top["primary_page_id"]),
+            sub_style_id=int(top["secondary_page_id"]),
+            perk_ids=perk_ids,
+            spell_ids=spell_ids,
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None
 
 
-class UGGProvider:
-    def __init__(self, http: httpx.AsyncClient | None = None) -> None:
-        self._http = http or httpx.AsyncClient(timeout=5.0)
-        self._version: str | None = None
+class OPGGProvider:
+    def __init__(self, http: httpx.AsyncClient | None = None, region: str = "global") -> None:
+        self._http = http or httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT})
+        self._region = region
+
+    async def _fetch(self, champion_id: int, position: str) -> dict:
+        url = OPGG_URL.format(region=self._region, champion_id=champion_id, position=position)
+        resp = await self._http.get(url)
+        resp.raise_for_status()
+        return resp.json()["data"]
+
+    async def _primary_position(self, champion_id: int) -> str:
+        data = await self._fetch(champion_id, DEFAULT_POSITION)
+        positions = data.get("summary", {}).get("positions") or []
+        if positions:
+            return PRIMARY_NAME_MAP.get(positions[0].get("name", ""), DEFAULT_POSITION)
+        return DEFAULT_POSITION
 
     async def get_build(self, champion_id: int, role: str) -> Build | None:
         try:
-            if self._version is None:
-                resp = await self._http.get(DDRAGON_VERSIONS_URL)
-                resp.raise_for_status()
-                self._version = to_ugg_version(resp.json()[0])
-            url = UGG_OVERVIEW_URL.format(version=self._version, champion_id=champion_id)
-            resp = await self._http.get(url)
-            resp.raise_for_status()
-            build = parse_overview(resp.json(), role)
+            position = POSITION_MAP.get(role)
+            if position is None:  # unassigned / blind / ARAM -> use champion's primary lane
+                position = await self._primary_position(champion_id)
+            data = await self._fetch(champion_id, position)
+            build = parse_champion(data)
             if build is None:
-                log.warning("U.GG payload for champion %s did not parse", champion_id)
+                log.warning("op.gg payload for champion %s did not parse", champion_id)
             return build
         except Exception as exc:
             log.warning("Meta build fetch failed for champion %s: %s", champion_id, exc)
-            self._version = None  # a stale patch version may 404; refetch next time
             return None
