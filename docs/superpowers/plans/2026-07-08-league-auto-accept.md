@@ -1317,20 +1317,32 @@ git commit -m "feat: champ select automation - pick/ban, spells, chat, lock noti
 
 ---
 
-### Task 7: Rune provider (U.GG fetch + parse)
+### Task 7: Rune provider (op.gg fetch + parse)
+
+**Context — data source changed from U.GG to op.gg.** The plan originally targeted U.GG, but U.GG's whole domain is now behind a Cloudflare managed challenge ("Just a moment…") that returns 403 to plain HTTP and cannot be reached without a headless browser. op.gg exposes a public JSON API (`lol-api-champion.op.gg`) that its own mobile app uses; it is reachable with plain HTTPS, needs no patch-version handshake, and its payload maps directly onto the same `Build` dataclass — so **Task 8 and every later task are unaffected.** The `Build` fields, the module path (`laa.runes.provider`), and `get_build(champion_id, role) -> Build | None` are unchanged; only the source, class name (`OPGGProvider`), and parser differ.
+
+The endpoint and payload below were verified live on 2026-07-08 (champion 103 Ahri, mid) — the constants sit in one block for easy fixing if op.gg drifts.
+
+Verified endpoint: `GET https://lol-api-champion.op.gg/api/{region}/champions/ranked/{champion_id}/{op_position}`
+- `region`: use `global` (worldwide aggregate; `na`/`kr`/`euw` also work).
+- `op_position` ∈ `{top, jungle, mid, adc, support}`. A wrong value returns HTTP 422 listing the valid set.
+- Response shape (only the fields we use), under top-level key `data`:
+  - `data["runes"]`: list, each `{"primary_page_id", "primary_rune_ids":[4], "secondary_page_id", "secondary_rune_ids":[2], "stat_mod_ids":[3], "play", "win", ...}`. Ids are Riot perk ids. Pick the entry with the highest `play`.
+  - `data["summoner_spells"]`: list, each `{"ids":[2 riot spell ids], "play", ...}`. Pick the entry with the highest `play`.
+  - `data["summary"]["positions"]`: list of `{"name": "MID"|"TOP"|"JUNGLE"|"ADC"|"SUPPORT", ...}`, ordered with the champion's primary position first — used to resolve an unassigned pick to a real lane.
 
 **Files:**
-- Create: `src/laa/runes/__init__.py`, `src/laa/runes/provider.py`, `scripts/probe_ugg.py`
+- Create: `src/laa/runes/__init__.py`, `src/laa/runes/provider.py`, `scripts/probe_opgg.py`
 - Test: `tests/test_provider.py`
 
 **Interfaces:**
 - Consumes: nothing internal (talks to the internet via its own `httpx.AsyncClient`)
 - Produces (`laa.runes.provider`):
-  - `Build(primary_style_id: int, sub_style_id: int, perk_ids: list[int], spell_ids: tuple[int, int])` — `perk_ids` is 9 ids: 6 runes then 3 stat shards, LCU order
-  - `to_ugg_version(riot_version: str) -> str` — `"15.13.1" -> "15_13"`
-  - `parse_overview(data: dict, role: str) -> Build | None`
-  - `UGGProvider(http: httpx.AsyncClient | None = None)` with `async get_build(champion_id: int, role: str) -> Build | None` — 5 s timeout, returns `None` on any failure
-- **U.GG payload shape is community-reverse-engineered; Step 6 verifies it live and constants live in one block for easy fixing.**
+  - `Build(primary_style_id: int, sub_style_id: int, perk_ids: list[int], spell_ids: tuple[int, int])` — `perk_ids` is 9 ids: 6 runes (4 primary + 2 secondary) then 3 stat shards, LCU order
+  - `POSITION_MAP: dict[str, str]` — LCU assignedPosition → op.gg position
+  - `parse_champion(data: dict) -> Build | None` — `data` is the response's `data` object
+  - `OPGGProvider(http: httpx.AsyncClient | None = None, region: str = "global")` with `async get_build(champion_id: int, role: str) -> Build | None` — 5 s timeout, returns `None` on any failure. For an unassigned/unmapped `role`, resolves the champion's primary position from `summary.positions` first.
+- **op.gg payload shape is reverse-engineered (verified live 2026-07-08); Step 5 re-verifies it live and constants live in one block for easy fixing.**
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1339,64 +1351,74 @@ Create `tests/test_provider.py`:
 ```python
 import httpx
 
-from laa.runes.provider import Build, UGGProvider, parse_overview, to_ugg_version
+from laa.runes.provider import Build, OPGGProvider, parse_champion
 
-PERKS = [8112, 8143, 8138, 8135, 8009, 9105]
-SHARDS = ["5008", "5008", "5002"]
-
-
-def make_overview(role_id="5", matches=1000):
-    stats = [
-        [matches, 600, 8100, 8000, list(PERKS)],   # [0] perks: matches, wins, primary, sub, ids
-        [matches, 600, [4, 14]],                    # [1] summoner spells
-        None, None, None, None, None, None,         # [2..7] unused by us
-        [matches, 600, list(SHARDS)],               # [8] stat shards
-    ]
-    return {"12": {"10": {role_id: [stats]}}}
-
-
-def test_to_ugg_version():
-    assert to_ugg_version("15.13.1") == "15_13"
-    assert to_ugg_version("14.1.5") == "14_1"
+# One real op.gg "runes" entry (Ahri mid, 2026-07-08) plus a lower-play decoy.
+RUNE_TOP = {
+    "primary_page_id": 8100, "primary_rune_ids": [8112, 8139, 8140, 8106],
+    "secondary_page_id": 8200, "secondary_rune_ids": [8210, 8226],
+    "stat_mod_ids": [5005, 5008, 5001], "play": 9000, "win": 4500,
+}
+RUNE_DECOY = {
+    "primary_page_id": 8000, "primary_rune_ids": [8005, 9111, 9104, 8014],
+    "secondary_page_id": 8400, "secondary_rune_ids": [8444, 8453],
+    "stat_mod_ids": [5005, 5008, 5002], "play": 100, "win": 40,
+}
+EXPECTED_PERKS = [8112, 8139, 8140, 8106, 8210, 8226, 5005, 5008, 5001]
 
 
-def test_parse_overview_exact_role():
-    build = parse_overview(make_overview(role_id="5"), "middle")
-    assert build == Build(primary_style_id=8100, sub_style_id=8000,
-                          perk_ids=PERKS + [5008, 5008, 5002], spell_ids=(4, 14))
+def make_data(positions=("MID",)):
+    return {
+        "summary": {"positions": [{"name": n} for n in positions]},
+        "runes": [RUNE_DECOY, RUNE_TOP],                       # unordered on purpose
+        "summoner_spells": [{"ids": [4, 12], "play": 50},
+                            {"ids": [4, 14], "play": 9000}],   # highest play wins
+    }
 
 
-def test_parse_overview_falls_back_to_most_played_role():
-    data = {"12": {"10": {
-        "1": make_overview("1")["12"]["10"]["1"],
-    }}}
-    data["12"]["10"]["1"][0][0][0] = 5000  # jungle has the most games
-    build = parse_overview(data, "middle")  # middle absent -> jungle
-    assert build is not None
-    assert build.primary_style_id == 8100
+def test_parse_champion_picks_most_played_rune_and_spells():
+    build = parse_champion(make_data())
+    assert build == Build(primary_style_id=8100, sub_style_id=8200,
+                          perk_ids=EXPECTED_PERKS, spell_ids=(4, 14))
 
 
-def test_parse_overview_garbage_returns_none():
-    assert parse_overview({}, "middle") is None
-    assert parse_overview({"12": {"10": {}}}, "middle") is None
-    assert parse_overview({"12": {"10": {"5": [[]]}}}, "middle") is None
+def test_parse_champion_garbage_returns_none():
+    assert parse_champion({}) is None
+    assert parse_champion({"runes": [], "summoner_spells": []}) is None
+    assert parse_champion({"runes": [{"primary_page_id": 8100}],
+                           "summoner_spells": []}) is None  # missing rune fields
 
 
-async def test_get_build_via_mock_transport():
+async def test_get_build_maps_lcu_position_and_parses():
+    seen = {}
+
     def handler(request: httpx.Request) -> httpx.Response:
-        if "ddragon" in request.url.host:
-            return httpx.Response(200, json=["15.13.1", "15.12.1"])
-        assert "stats2.u.gg" in request.url.host
-        assert "/overview/15_13/ranked_solo_5x5/103/" in request.url.path
-        return httpx.Response(200, json=make_overview())
+        assert request.url.host == "lol-api-champion.op.gg"
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"data": make_data()})
 
-    provider = UGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    provider = OPGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     build = await provider.get_build(103, "middle")
+    assert seen["path"] == "/api/global/champions/ranked/103/mid"   # middle -> mid
     assert build is not None and build.spell_ids == (4, 14)
 
 
+async def test_get_build_unassigned_resolves_primary_position():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        # first call (probe) reports the champion's primary lane as SUPPORT
+        return httpx.Response(200, json={"data": make_data(positions=("SUPPORT",))})
+
+    provider = OPGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    build = await provider.get_build(412, "")           # unassigned
+    assert build is not None
+    assert calls[-1] == "/api/global/champions/ranked/412/support"  # resolved to support
+
+
 async def test_get_build_returns_none_on_http_error():
-    provider = UGGProvider(http=httpx.AsyncClient(
+    provider = OPGGProvider(http=httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(500))))
     assert await provider.get_build(103, "middle") is None
 ```
@@ -1420,92 +1442,98 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-# ---- U.GG constants (community-reverse-engineered; verified by scripts/probe_ugg.py) ----
-DDRAGON_VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
-UGG_OVERVIEW_URL = "https://stats2.u.gg/lol/1.5/overview/{version}/ranked_solo_5x5/{champion_id}/1.5.0.json"
-REGION_WORLD = "12"
-RANK_EMERALD_PLUS = "10"
-ROLE_IDS = {"jungle": "1", "utility": "2", "bottom": "3", "top": "4", "middle": "5"}
-IDX_PERKS = 0    # [matches, wins, primary_style, sub_style, [6 perk ids]]
-IDX_SPELLS = 1   # [matches, wins, [2 spell ids]]
-IDX_SHARDS = 8   # [matches, wins, [3 shard ids as strings]]
-# -----------------------------------------------------------------------------------------
+# ---- op.gg constants (reverse-engineered; verified live by scripts/probe_opgg.py) -------
+OPGG_URL = "https://lol-api-champion.op.gg/api/{region}/champions/ranked/{champion_id}/{position}"
+USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+# LCU assignedPosition -> op.gg position path segment
+POSITION_MAP = {"top": "top", "jungle": "jungle", "middle": "mid",
+                "bottom": "adc", "utility": "support"}
+# op.gg summary.positions[].name -> op.gg position path segment (for primary-lane fallback)
+PRIMARY_NAME_MAP = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid",
+                    "ADC": "adc", "SUPPORT": "support"}
+DEFAULT_POSITION = "mid"  # last-resort when an unassigned champion's primary can't be read
+# ----------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class Build:
     primary_style_id: int
     sub_style_id: int
-    perk_ids: list[int]           # 6 runes + 3 stat shards, LCU order
+    perk_ids: list[int]           # 6 runes (4 primary + 2 secondary) + 3 stat shards, LCU order
     spell_ids: tuple[int, int]
 
 
-def to_ugg_version(riot_version: str) -> str:
-    major, minor, *_ = riot_version.split(".")
-    return f"{major}_{minor}"
-
-
-def parse_overview(data: dict, role: str) -> Build | None:
+def parse_champion(data: dict) -> Build | None:
     try:
-        rank = data[REGION_WORLD][RANK_EMERALD_PLUS]
-        role_id = ROLE_IDS.get(role)
-        if role_id not in rank:
-            if not rank:
-                return None
-            role_id = max(rank, key=lambda r: rank[r][0][IDX_PERKS][0])  # most games played
-        overview = rank[role_id][0]
-        perks = overview[IDX_PERKS]
-        spells = overview[IDX_SPELLS]
-        shards = overview[IDX_SHARDS]
+        runes = data.get("runes") or []
+        spells = data.get("summoner_spells") or []
+        if not runes or not spells:
+            return None
+        top = max(runes, key=lambda r: r.get("play", 0))
+        best_spells = max(spells, key=lambda s: s.get("play", 0))
+        perk_ids = ([int(p) for p in top["primary_rune_ids"]]
+                    + [int(p) for p in top["secondary_rune_ids"]]
+                    + [int(p) for p in top["stat_mod_ids"]])
+        spell_ids = (int(best_spells["ids"][0]), int(best_spells["ids"][1]))
         return Build(
-            primary_style_id=int(perks[2]),
-            sub_style_id=int(perks[3]),
-            perk_ids=[int(p) for p in perks[4]] + [int(s) for s in shards[2]],
-            spell_ids=(int(spells[2][0]), int(spells[2][1])),
+            primary_style_id=int(top["primary_page_id"]),
+            sub_style_id=int(top["secondary_page_id"]),
+            perk_ids=perk_ids,
+            spell_ids=spell_ids,
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None
 
 
-class UGGProvider:
-    def __init__(self, http: httpx.AsyncClient | None = None) -> None:
-        self._http = http or httpx.AsyncClient(timeout=5.0)
-        self._version: str | None = None
+class OPGGProvider:
+    def __init__(self, http: httpx.AsyncClient | None = None, region: str = "global") -> None:
+        self._http = http or httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT})
+        self._region = region
+
+    async def _fetch(self, champion_id: int, position: str) -> dict:
+        url = OPGG_URL.format(region=self._region, champion_id=champion_id, position=position)
+        resp = await self._http.get(url)
+        resp.raise_for_status()
+        return resp.json()["data"]
+
+    async def _primary_position(self, champion_id: int) -> str:
+        data = await self._fetch(champion_id, DEFAULT_POSITION)
+        positions = data.get("summary", {}).get("positions") or []
+        if positions:
+            return PRIMARY_NAME_MAP.get(positions[0].get("name", ""), DEFAULT_POSITION)
+        return DEFAULT_POSITION
 
     async def get_build(self, champion_id: int, role: str) -> Build | None:
         try:
-            if self._version is None:
-                resp = await self._http.get(DDRAGON_VERSIONS_URL)
-                resp.raise_for_status()
-                self._version = to_ugg_version(resp.json()[0])
-            url = UGG_OVERVIEW_URL.format(version=self._version, champion_id=champion_id)
-            resp = await self._http.get(url)
-            resp.raise_for_status()
-            build = parse_overview(resp.json(), role)
+            position = POSITION_MAP.get(role)
+            if position is None:  # unassigned / blind / ARAM -> use champion's primary lane
+                position = await self._primary_position(champion_id)
+            data = await self._fetch(champion_id, position)
+            build = parse_champion(data)
             if build is None:
-                log.warning("U.GG payload for champion %s did not parse", champion_id)
+                log.warning("op.gg payload for champion %s did not parse", champion_id)
             return build
         except Exception as exc:
             log.warning("Meta build fetch failed for champion %s: %s", champion_id, exc)
-            self._version = None  # a stale patch version may 404; refetch next time
             return None
 ```
 
-Create `scripts/probe_ugg.py`:
+Create `scripts/probe_opgg.py`:
 
 ```python
-"""Live check of the U.GG endpoint constants. Usage: python scripts/probe_ugg.py [champion_id] [role]"""
+"""Live check of the op.gg endpoint constants. Usage: python scripts/probe_opgg.py [champion_id] [role]"""
 import asyncio
 import sys
 
 sys.path.insert(0, "src")
-from laa.runes.provider import UGGProvider  # noqa: E402
+from laa.runes.provider import OPGGProvider  # noqa: E402
 
 
 async def main() -> None:
     cid = int(sys.argv[1]) if len(sys.argv) > 1 else 103  # Ahri
     role = sys.argv[2] if len(sys.argv) > 2 else "middle"
-    build = await UGGProvider().get_build(cid, role)
+    build = await OPGGProvider().get_build(cid, role)
     print(build)
     if build is None:
         raise SystemExit("FAILED - endpoint or payload shape changed; adjust provider constants")
@@ -1521,16 +1549,18 @@ Expected: all pass
 
 - [ ] **Step 5: Verify the real endpoint (live probe)**
 
-Run: `.venv\Scripts\python scripts/probe_ugg.py 103 middle`
-Expected: prints a `Build(primary_style_id=..., perk_ids=[... 9 ids ...], spell_ids=(...))`, exit code 0.
+Run: `.venv\Scripts\python scripts/probe_opgg.py 103 middle`
+Expected: prints a `Build(primary_style_id=..., perk_ids=[... 9 ids ...], spell_ids=(...))`, exit code 0. Also try an unassigned role: `.venv\Scripts\python scripts/probe_opgg.py 412 ""` (Thresh, resolves to support) — should also print a Build.
 
-**If it fails:** the reverse-engineered constants drifted. Debug in this order, changing only the constants block in `provider.py`: (1) print the raw JSON keys — top level should be region ids; adjust `REGION_WORLD`; (2) second level rank ids; adjust `RANK_EMERALD_PLUS`; (3) confirm the trailing `1.5.0.json` API version segment against the requests u.gg's own site makes (browser devtools, filter `stats2.u.gg`); (4) confirm index positions `IDX_PERKS/IDX_SPELLS/IDX_SHARDS`. Re-run the probe until it prints a Build. Unit tests must still pass unmodified (they encode the *structure*, and fixture constants match whatever you fix).
+**If it fails:** op.gg drifted. Debug by changing only the constants block in `provider.py`: (1) `GET` the URL for champ 103 position `mid` and inspect the JSON — confirm the top-level `data` key and that `data["runes"]`/`data["summoner_spells"]` exist with the field names above; (2) if positions changed, re-check the 422 error message (request a bad position) for the valid set and update `POSITION_MAP`/`PRIMARY_NAME_MAP`; (3) if `region` is rejected, fall back to `na`. Re-run the probe until it prints a Build. Unit tests encode the *structure* and must still pass unmodified.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Replace the old U.GG provider (if present) and commit**
+
+If a prior U.GG `provider.py`/`scripts/probe_ugg.py` exists from an earlier attempt, delete `scripts/probe_ugg.py` and ensure `provider.py` contains only the op.gg implementation above (no `UGGProvider`, `to_ugg_version`, or `parse_overview` left behind). Then:
 
 ```powershell
 git add -A
-git commit -m "feat: U.GG meta build provider with live-verified constants"
+git commit -m "feat: op.gg meta build provider with live-verified constants"
 ```
 
 ---
@@ -1970,7 +2000,7 @@ git commit -m "feat: engine orchestration with phase-keyed resets"
 - Test: `tests/test_store.py`, `tests/conftest.py`
 
 **Interfaces:**
-- Consumes: `Config`/`load`/`save` (Task 1), `LCUConnector` (Task 3), `Engine` (Task 9), `ChampionCatalog` (Task 8), `UGGProvider` (Task 7), `RuneApplier` (Task 8)
+- Consumes: `Config`/`load`/`save` (Task 1), `LCUConnector` (Task 3), `Engine` (Task 9), `ChampionCatalog` (Task 8), `OPGGProvider` (Task 7), `RuneApplier` (Task 8)
 - Produces:
   - `laa.ui.store.ConfigStore(cfg: Config, path: Path | None = None)`: `get() -> Config`, `update(**changes) -> Config` (thread-safe `dataclasses.replace` + save). **`store.get` is the `get_config` closure passed to the engine layer.**
   - `laa.ui.bridge.Bridge(QObject)` signals: `status = Signal(str)`, `log_line = Signal(str)`, `catalog_ready = Signal(object)`; plus `QtLogHandler(bridge)` (a `logging.Handler` emitting `log_line`)
@@ -2092,7 +2122,7 @@ from laa.core.engine import Engine
 from laa.lcu.catalog import ChampionCatalog
 from laa.lcu.connector import LCUConnector
 from laa.runes.applier import RuneApplier
-from laa.runes.provider import UGGProvider
+from laa.runes.provider import OPGGProvider
 from laa.ui.bridge import Bridge
 from laa.ui.store import ConfigStore
 
@@ -2121,7 +2151,7 @@ class LCUWorker(threading.Thread):
 
         connector = LCUConnector(on_event)
         catalog = ChampionCatalog(connector)
-        applier = RuneApplier(connector, UGGProvider(), self._store.get, catalog.name)
+        applier = RuneApplier(connector, OPGGProvider(), self._store.get, catalog.name)
 
         def notify(text: str) -> None:
             self._bridge.status.emit(text)
@@ -2684,7 +2714,7 @@ with a GUI, system tray, and automatic meta rune import.
 - Summoner spell assignment with Flash-key (D/F) preference
 - One-time lobby chat message
 - **Auto meta runes:** when your pick locks in, the current meta rune page and
-  (optionally) summoner spells for that champion/role are fetched from U.GG and
+  (optionally) summoner spells for that champion/role are fetched from op.gg and
   written to a rune page named `LAA: <Champion>` — your other pages are never touched
 - Everything individually toggleable; master pause in the system tray
 

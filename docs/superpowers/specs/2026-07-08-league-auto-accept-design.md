@@ -19,7 +19,7 @@ Windows-only, packaged as a standalone `.exe` (PyInstaller). Requires the League
 5. Every automation is **individually toggleable**; a master pause/resume lives in the tray menu and the main window.
 
 ### New
-6. **Auto meta runes + spells on lock-in** — when the player's champion is locked, fetch the current meta rune page and summoner spells for that champion/assigned role from U.GG's public stats endpoint and write them to a dedicated rune page named `LAA: <Champion>` (created or overwritten — never touches the user's other pages), then set it as the active page. If the fetch or mapping fails for any reason, log it, leave the player's current runes untouched, and never delay or block the pick.
+6. **Auto meta runes + spells on lock-in** — when the player's champion is locked, fetch the current meta rune page and summoner spells for that champion/assigned role from op.gg's public champion-stats endpoint and write them to a dedicated rune page named `LAA: <Champion>` (created or overwritten — never touches the user's other pages), then set it as the active page. If the fetch or mapping fails for any reason, log it, leave the player's current runes untouched, and never delay or block the pick. (Source changed from U.GG to op.gg during implementation — U.GG became Cloudflare-gated; see the plan's Task 7 for the verified endpoint.)
 
 ### Non-goals (explicitly out of scope)
 - Per-role pick/ban lists (declined by user)
@@ -77,8 +77,8 @@ A state machine keyed on gameflow phase. Pure asyncio + connector calls; no Qt i
 
 ### 3. Rune provider (`src/laa/runes/`)
 
-- **Source:** U.GG's public stats JSON (the same community-documented `stats2.u.gg` overview endpoint used by open-source rune importers). The exact URL shape and JSON schema must be **verified at implementation time** (a dedicated plan task); the provider is an interface (`get_build(champion_id, role) -> Build | None`) so the source can be swapped if U.GG changes.
-- **Mapping:** U.GG perk IDs are Riot perk IDs, so the mapping to an LCU rune page is direct: primary style, sub-style, 6 perk selections, 3 stat shards. Summoner spells come from the same payload.
+- **Source:** op.gg's public champion-stats JSON (`lol-api-champion.op.gg`, the endpoint op.gg's own mobile app uses), verified live at implementation time. Originally planned against U.GG, but U.GG's domain became Cloudflare-gated (403 to plain HTTP) and unreachable without a headless browser. The provider is an interface (`get_build(champion_id, role) -> Build | None`) so the source can be swapped again if op.gg changes — this swap exercised exactly that.
+- **Mapping:** op.gg returns Riot perk IDs directly, so the mapping to an LCU rune page is direct: `primary_page_id` → primary style, `secondary_page_id` → sub-style, `primary_rune_ids` + `secondary_rune_ids` + `stat_mod_ids` → the 9 `selectedPerkIds` (6 runes + 3 shards). Summoner spells come from the same payload. Unassigned picks resolve to the champion's primary lane via the payload's `summary.positions`.
 - **Application:** delete any existing page whose name starts with `LAA:`, then create `LAA: <Champion>` and set it current. If the account has no free page slot, overwrite the previous `LAA:` page in place instead of failing.
 - **Failure policy:** timeout 5 s; on any error return `None` — the engine logs "meta runes unavailable" and moves on. Spells from the provider are applied only if the user enabled "use meta spells" (otherwise the static configured spells win).
 
@@ -121,6 +121,6 @@ JSON at `%APPDATA%\LeagueAutoAccept\config.json`, dataclass-backed, written atom
 
 ## Risks
 
-- **U.GG endpoint is unofficial** and may change shape — mitigated by the provider interface, implementation-time verification, and silent-degrade policy.
+- **op.gg endpoint is unofficial** and may change shape or become gated (as U.GG did) — mitigated by the provider interface, implementation-time verification, and silent-degrade policy (a failed fetch leaves runes untouched and never blocks the pick).
 - **LCU endpoint drift** across client patches — mitigated by using long-stable endpoints (the same ones the C# original and other community tools rely on).
 - **PyInstaller + PySide6 size** (~50 MB exe) — accepted trade-off, matches user's distribution choice.
