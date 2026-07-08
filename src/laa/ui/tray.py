@@ -36,8 +36,22 @@ def create_tray(app: QApplication, window: MainWindow, store: ConfigStore) -> QS
     def on_pause(checked: bool) -> None:
         store.update(master_paused=checked)
         tray.setIcon(make_icon(checked))
+        # Reflect the change on the window button without re-firing its handler.
+        window._pause.blockSignals(True)
+        window._pause.setChecked(checked)
+        window._pause.blockSignals(False)
 
     pause.toggled.connect(on_pause)
+
+    def _sync_from_window(checked: bool) -> None:
+        # Window button already wrote master_paused; mirror onto the tray
+        # without re-firing on_pause.
+        tray.setIcon(make_icon(checked))
+        pause.blockSignals(True)
+        pause.setChecked(checked)
+        pause.blockSignals(False)
+
+    window._pause.toggled.connect(_sync_from_window)
     show = menu.addAction("Show window")
     show.triggered.connect(lambda: (window.showNormal(), window.activateWindow()))
     menu.addSeparator()

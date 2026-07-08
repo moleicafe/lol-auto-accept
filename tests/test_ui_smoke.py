@@ -56,3 +56,38 @@ def test_tray_icon_builds(qtbot, tmp_path):
 
     assert not make_icon(paused=False).isNull()
     assert not make_icon(paused=True).isNull()
+
+
+def test_pause_syncs_between_window_and_tray(qtbot, tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    from laa.ui.tray import create_tray
+
+    store = make_store(tmp_path)
+    win = MainWindow(store, Bridge())
+    qtbot.addWidget(win)
+    tray = create_tray(QApplication.instance(), win, store)
+    try:
+        pause_action = tray.contextMenu().actions()[0]
+        assert pause_action.text() == "Pause"
+
+        # Tray -> window: toggling the tray action updates the window button
+        # (and does not infinite-loop back through on_pause).
+        pause_action.setChecked(True)
+        assert win._pause.isChecked() is True
+        assert store.get().master_paused is True
+
+        pause_action.setChecked(False)
+        assert win._pause.isChecked() is False
+        assert store.get().master_paused is False
+
+        # Window -> tray: toggling the window button updates the tray action.
+        win._pause.setChecked(True)
+        assert pause_action.isChecked() is True
+        assert store.get().master_paused is True
+
+        win._pause.setChecked(False)
+        assert pause_action.isChecked() is False
+        assert store.get().master_paused is False
+    finally:
+        tray.hide()
