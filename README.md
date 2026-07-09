@@ -97,5 +97,5 @@ Korean server policy — use at your own risk.
 
 ## License
 
-[MIT](LICENSE) © 2026 Calvin Yap. Inspired by the original
+[MIT](LICENSE) © 2026 Ye Molei. Inspired by the original
 [sweetriverfish/LeagueAutoAccept](https://github.com/sweetriverfish/LeagueAutoAccept) (also MIT).
