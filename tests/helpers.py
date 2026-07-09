@@ -11,13 +11,19 @@ def action(aid: int, cell: int, type_: str, champion_id: int = 0,
 
 
 def make_session(cell: int = 0, actions: list[list[dict]] | None = None,
-                 position: str = "middle") -> dict:
+                 position: str = "middle", time_left_ms: int | None = None,
+                 timer_infinite: bool = False, phase: str = "BAN_PICK") -> dict:
+    timer: dict = {"phase": phase}
+    if timer_infinite:
+        timer["isInfinite"] = True
+    if time_left_ms is not None:
+        timer["adjustedTimeLeftInPhase"] = time_left_ms
     return {
         "localPlayerCellId": cell,
         "actions": actions or [],
         "myTeam": [{"cellId": cell, "championId": 0, "assignedPosition": position}],
         "theirTeam": [],
-        "timer": {"phase": "BAN_PICK"},
+        "timer": timer,
     }
 
 
