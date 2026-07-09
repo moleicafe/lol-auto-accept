@@ -1,5 +1,7 @@
 # League Auto Accept
 
+[![CI](https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml/badge.svg)](https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml)
+
 **A Windows desktop app that plays the boring parts of League of Legends matchmaking for you — auto-accepting queues, locking your champion, and importing the current meta rune page the moment you lock in.**
 
 Built for League players who queue up and step away: it accepts the ready check so you never miss a game, declares your pick and bans from a priority list, and — the headline feature — pulls the current meta runes and summoner spells for your champion and role from op.gg and writes them to a dedicated rune page automatically. It's a ground-up Python rebuild of the C# [sweetriverfish/LeagueAutoAccept](https://github.com/sweetriverfish/LeagueAutoAccept), reimagined with a proper GUI, a system-tray background mode, and automatic rune importing that the original didn't have.
