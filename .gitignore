@@ -5,3 +5,15 @@ __pycache__/
 build/
 dist/
 *.spec
+
+# Local agent scratch
+.superpowers/
+
+# Logs
+*.log
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
