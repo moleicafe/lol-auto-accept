@@ -32,6 +32,16 @@ def test_pause_button_writes_config(qtbot, tmp_path):
     assert store.get().master_paused is True
 
 
+def test_safety_lock_controls_write_config(qtbot, tmp_path):
+    store = make_store(tmp_path)
+    win = MainWindow(store, Bridge())
+    qtbot.addWidget(win)
+    win._safety.setChecked(True)
+    assert store.get().safety_lock is True
+    win._safety_buf.setValue(3)
+    assert store.get().safety_lock_buffer_s == 3.0
+
+
 def test_champ_list_editor_add_remove_move(qtbot):
     ed = ChampListEditor("Picks")
     qtbot.addWidget(ed)
