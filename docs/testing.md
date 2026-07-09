@@ -9,6 +9,9 @@ Run against the real League client (a practice-tool or draft lobby). Check off e
 - [ ] Draft lobby: ban list top choice gets banned
 - [ ] Pick list: top choice hovered; with instalock on, locked
 - [ ] First pick banned by someone else -> falls through to second choice
+- [ ] Safety-lock on (instalock off, buffer 1 s): hover a champion, don't lock ->
+      it auto-locks ~1 s before the pick timer expires; auto-runes still fire after.
+      Manually re-hovering a different champ before the deadline locks that one.
 - [ ] Summoner spells set; "Flash on F" places Flash on F
 - [ ] Lobby message posted exactly once
 - [ ] On lock-in: rune page "LAA: <Champion>" created and selected; re-lock next game

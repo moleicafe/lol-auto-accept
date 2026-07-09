@@ -24,6 +24,8 @@ class Config:
     pick_ids: list[int] = field(default_factory=list)
     ban_ids: list[int] = field(default_factory=list)
     instalock: bool = False
+    safety_lock: bool = False
+    safety_lock_buffer_s: float = 1.0
     set_spells: bool = False
     spell1_id: int = 4
     spell2_id: int = 14

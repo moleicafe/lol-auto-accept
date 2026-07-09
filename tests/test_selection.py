@@ -1,6 +1,37 @@
 from laa.core.selection import (assigned_position, choose_ban, choose_pick,
-                                my_active_actions, my_completed_pick, ordered_spells)
+                                lock_target, my_active_actions, my_completed_pick,
+                                ordered_spells, pick_time_left_s)
 from tests.helpers import action, make_session
+
+
+def test_pick_time_left_finite():
+    assert pick_time_left_s(make_session(time_left_ms=27000)) == 27.0
+
+
+def test_pick_time_left_infinite_is_none():
+    assert pick_time_left_s(make_session(time_left_ms=27000, timer_infinite=True)) is None
+
+
+def test_pick_time_left_missing_is_none():
+    assert pick_time_left_s(make_session()) is None
+
+
+def test_pick_time_left_non_pick_phase_is_none():
+    assert pick_time_left_s(make_session(time_left_ms=27000, phase="FINALIZATION")) is None
+
+
+def test_lock_target_prefers_live_hover():
+    s = make_session(actions=[[action(7, 0, "pick", champion_id=103, in_progress=True)]])
+    assert lock_target(s, [61], {61, 103}) == 103
+
+
+def test_lock_target_falls_back_to_pick_list():
+    s = make_session(actions=[[action(7, 0, "pick", in_progress=True)]])  # no hover
+    assert lock_target(s, [61, 245], {245, 61}) == 61
+
+
+def test_lock_target_none_when_no_pick_turn():
+    assert lock_target(make_session(), [61], {61}) is None
 
 
 def test_my_active_actions_filters_to_local_in_progress():

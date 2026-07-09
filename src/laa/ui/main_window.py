@@ -165,6 +165,10 @@ class MainWindow(QMainWindow):
         self._delay_label.setText(f"{value} s")
         self._store.update(accept_delay_s=float(value))
 
+    def _on_safety_buffer(self, value: int) -> None:
+        self._safety_buf_label.setText(f"{value} s")
+        self._store.update(safety_lock_buffer_s=float(value))
+
     def _champ_tab(self, cfg) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -178,6 +182,19 @@ class MainWindow(QMainWindow):
         instalock = QCheckBox("Instalock (lock pick immediately)")
         instalock.setChecked(cfg.instalock)
         instalock.toggled.connect(lambda on: self._store.update(instalock=on))
+
+        self._safety = QCheckBox("Auto-lock before timer runs out")
+        self._safety.setChecked(cfg.safety_lock)
+        self._safety.toggled.connect(lambda on: self._store.update(safety_lock=on))
+        self._safety_buf = QSlider(Qt.Orientation.Horizontal)
+        self._safety_buf.setRange(0, 5)
+        self._safety_buf.setValue(int(cfg.safety_lock_buffer_s))
+        self._safety_buf_label = QLabel(f"{int(cfg.safety_lock_buffer_s)} s")
+        self._safety_buf.valueChanged.connect(self._on_safety_buffer)
+        safety_row = QHBoxLayout()
+        safety_row.addWidget(QLabel("Lock buffer"))
+        safety_row.addWidget(self._safety_buf, 1)
+        safety_row.addWidget(self._safety_buf_label)
 
         spells = QCheckBox("Set summoner spells")
         spells.setChecked(cfg.set_spells)
@@ -200,6 +217,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._picks, 1)
         lay.addWidget(self._bans, 1)
         lay.addWidget(instalock)
+        lay.addWidget(self._safety)
+        lay.addLayout(safety_row)
         lay.addLayout(srow)
         lay.addWidget(msg)
         return w
