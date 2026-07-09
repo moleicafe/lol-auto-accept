@@ -28,6 +28,7 @@ It talks only to Riot's **local** League Client (LCU) API on your own machine �
 
 - **Never miss a queue** — auto-accepts the ready check, with an optional 0–10s delay if you like a moment to react.
 - **Pick & ban from priority lists** — declares the first available champion from your ordered list, falling back down the list if one is banned or taken. Optional instalock.
+- **Safety-lock** — hover freely and let it auto-lock your champion a configurable moment (default 1s) before the pick timer expires, so you never get dodged for not locking in time. Locks whatever you're currently hovering.
 - **Summoner spells** — sets your two spells with a Flash-on-D / Flash-on-F preference.
 - **Auto meta runes (the headline feature)** — when your pick locks in, it fetches the current meta rune page *and* summoner spells for that champion and assigned role from op.gg, and writes them to a rune page named `LAA: <Champion>`. Your own pages are never touched, and if the lookup fails your current runes are left exactly as they were — it never blocks your pick.
 - **One-time lobby message** — posts a configurable "glhf!" to champ-select chat.
