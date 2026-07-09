@@ -8,6 +8,7 @@ import sys
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from laa import config
+from laa.ui.assets import logo_icon
 from laa.ui.bridge import Bridge, QtLogHandler
 from laa.ui.main_window import MainWindow
 from laa.ui.store import ConfigStore
@@ -35,7 +36,14 @@ def setup_logging() -> None:
 
 
 def main() -> int:
+    # Make Windows group the taskbar entry under our own app id so it shows
+    # the app icon rather than the generic Python one.
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(MUTEX_NAME)
+    except Exception:
+        pass
     app = QApplication(sys.argv)
+    app.setWindowIcon(logo_icon())
     if not acquire_single_instance():
         QMessageBox.warning(None, "League Auto Accept", "League Auto Accept is already running.")
         return 1

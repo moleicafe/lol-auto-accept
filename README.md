@@ -1,6 +1,12 @@
-# League Auto Accept
+<p align="center">
+  <img src="assets/logo.png" width="140" alt="League Auto Accept logo">
+</p>
 
-[![CI](https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml/badge.svg)](https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml)
+<h1 align="center">League Auto Accept</h1>
+
+<p align="center">
+  <a href="https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml"><img src="https://github.com/moleicafe/lol-auto-accept/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
 **A Windows desktop app that plays the boring parts of League of Legends matchmaking for you — auto-accepting queues, locking your champion, and importing the current meta rune page the moment you lock in.**
 

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QCompleter, QFormLayout, QG
                                QPlainTextEdit, QPushButton, QSlider, QSystemTrayIcon,
                                QTabWidget, QVBoxLayout, QWidget)
 
+from laa.ui.assets import logo_icon
 from laa.ui.bridge import Bridge
 from laa.ui.store import ConfigStore
 
@@ -108,6 +109,7 @@ class MainWindow(QMainWindow):
         self._store = store
         self.tray: QSystemTrayIcon | None = None
         self.setWindowTitle("League Auto Accept")
+        self.setWindowIcon(logo_icon())
         self.resize(520, 640)
         cfg = store.get()
 

@@ -1,29 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from laa.ui.assets import tray_icon
 from laa.ui.main_window import MainWindow
 from laa.ui.store import ConfigStore
 
 
 def make_icon(paused: bool) -> QIcon:
-    pm = QPixmap(64, 64)
-    pm.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pm)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setBrush(QColor("#5b5a56") if paused else QColor("#c89b3c"))
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(4, 4, 56, 56)
-    painter.setPen(QColor("#0a1428"))
-    font = QFont()
-    font.setBold(True)
-    font.setPixelSize(28)
-    painter.setFont(font)
-    painter.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, "LA")
-    painter.end()
-    return QIcon(pm)
+    """The tray/window logo; dimmed when automation is paused."""
+    return tray_icon(paused)
 
 
 def create_tray(app: QApplication, window: MainWindow, store: ConfigStore) -> QSystemTrayIcon:
