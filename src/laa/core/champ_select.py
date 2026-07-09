@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Awaitable, Callable
 
@@ -21,6 +22,10 @@ class ChampSelectAutomation:
         self.reset()
 
     def reset(self) -> None:
+        task = getattr(self, "_safety_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._safety_task: asyncio.Task | None = None
         self._spells_done = False
         self._chat_done = False
         self._locked_notified = False
@@ -38,6 +43,7 @@ class ChampSelectAutomation:
             await self._send_chat(cfg.lobby_message)
         await self._handle_actions(cfg, session)
         await self._notify_lock(session)
+        self._arm_safety_lock(cfg, session)
 
     async def _apply_spells(self, cfg: Config) -> None:
         s1, s2 = selection.ordered_spells(cfg.spell1_id, cfg.spell2_id, cfg.flash_on_f)
@@ -106,3 +112,64 @@ class ChampSelectAutomation:
             return
         self._locked_notified = True
         await self._on_locked(cid, selection.assigned_position(session))
+
+    def _cancel_safety(self) -> None:
+        if self._safety_task is not None and not self._safety_task.done():
+            self._safety_task.cancel()
+        self._safety_task = None
+
+    def _arm_safety_lock(self, cfg: Config, session: dict) -> None:
+        if cfg.master_paused or not cfg.safety_lock or cfg.instalock:
+            self._cancel_safety()
+            return
+        pick = next((a for a in selection.my_active_actions(session)
+                     if a.get("type") == "pick"), None)
+        time_left = selection.pick_time_left_s(session)
+        if pick is None or time_left is None:
+            self._cancel_safety()
+            return
+        delay = max(0.0, time_left - cfg.safety_lock_buffer_s)
+        self._cancel_safety()
+        self._safety_task = asyncio.create_task(
+            self._safety_lock_after(delay, pick["id"]))
+
+    async def _safety_lock_after(self, delay: float, action_id: int) -> None:
+        await asyncio.sleep(delay)  # CancelledError propagates cleanly on reset/re-arm
+        try:
+            await self._fire_safety_lock(action_id)
+        except Exception:
+            log.exception("Safety-lock task error")
+
+    async def _fire_safety_lock(self, action_id: int) -> None:
+        cfg = self._get_config()
+        if cfg.master_paused or not cfg.safety_lock or cfg.instalock:
+            return
+        try:
+            session = await self._lcu.get("/lol-champ-select/v1/session")
+        except LCUError as exc:
+            log.warning("Safety lock: session read failed: %s", exc)
+            return
+        if not isinstance(session, dict):
+            return
+        action = next((a for a in selection.flat_actions(session)
+                       if a.get("id") == action_id), None)
+        if action is None or action.get("completed") or not action.get("isInProgress"):
+            return  # already locked, dodged, or phase changed
+        if not self._pickable:
+            try:
+                self._pickable = set(await self._lcu.get(
+                    "/lol-champ-select/v1/pickable-champion-ids") or [])
+            except LCUError as exc:
+                log.warning("Safety lock: pickable fetch failed: %s", exc)
+                return
+        cid = selection.lock_target(session, cfg.pick_ids, self._pickable)
+        if cid is None:
+            log.info("Safety lock: nothing to lock")
+            return
+        try:
+            await self._lcu.patch(f"/lol-champ-select/v1/session/actions/{action_id}",
+                                  {"championId": cid, "completed": True})
+            self._acted[action_id] = (cid, True)
+            log.info("Safety-locked champion %s", cid)
+        except LCUError as exc:
+            log.warning("Safety lock failed: %s", exc)

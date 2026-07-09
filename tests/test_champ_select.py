@@ -1,3 +1,5 @@
+import asyncio
+
 from laa.config import Config
 from laa.core.champ_select import ChampSelectAutomation
 from tests.helpers import FakeLCU, action, make_session
@@ -5,6 +7,7 @@ from tests.helpers import FakeLCU, action, make_session
 PICKABLE = ("GET", "/lol-champ-select/v1/pickable-champion-ids")
 BANNABLE = ("GET", "/lol-champ-select/v1/bannable-champion-ids")
 CONVOS = ("GET", "/lol-chat/v1/conversations")
+SESSION = ("GET", "/lol-champ-select/v1/session")
 
 
 def lcu_with(pickable=(103, 1, 245), bannable=(157, 238)):
@@ -135,3 +138,93 @@ async def test_paused_does_nothing():
                                                   set_spells=True))
     await auto.on_session(make_session(actions=[[action(7, 0, "pick", in_progress=True)]]))
     assert lcu.calls == []
+
+
+def hovered_session(cid=103, ms=1000):
+    return make_session(actions=[[action(7, 0, "pick", champion_id=cid, in_progress=True)]],
+                        time_left_ms=ms)
+
+
+async def test_safety_lock_locks_hovered_champ():
+    s = hovered_session()
+    lcu = FakeLCU({SESSION: s, PICKABLE: [103, 245]})
+    auto = ChampSelectAutomation(
+        lcu, lambda: cfg(safety_lock=True, safety_lock_buffer_s=1.0, pick_ids=[]))
+    await auto.on_session(s)          # delay = 1.0 - 1.0 = 0
+    await auto._safety_task           # run the scheduled lock
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/7")[-1] == (
+        "PATCH", "/lol-champ-select/v1/session/actions/7",
+        {"championId": 103, "completed": True})
+
+
+async def test_safety_lock_falls_back_to_pick_list_when_no_hover():
+    s = make_session(actions=[[action(7, 0, "pick", in_progress=True)]], time_left_ms=1000)
+    lcu = FakeLCU({SESSION: s, PICKABLE: [245]})
+    auto = ChampSelectAutomation(
+        lcu, lambda: cfg(safety_lock=True, safety_lock_buffer_s=1.0, pick_ids=[245]))
+    await auto.on_session(s)
+    await auto._safety_task
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/7")[-1] == (
+        "PATCH", "/lol-champ-select/v1/session/actions/7",
+        {"championId": 245, "completed": True})
+
+
+async def test_no_safety_task_when_instalock():
+    s = hovered_session()
+    auto = ChampSelectAutomation(
+        FakeLCU({SESSION: s, PICKABLE: [103]}),
+        lambda: cfg(safety_lock=True, instalock=True, pick_ids=[]))
+    await auto.on_session(s)
+    assert auto._safety_task is None
+
+
+async def test_no_safety_task_when_safety_disabled():
+    s = hovered_session()
+    auto = ChampSelectAutomation(FakeLCU({SESSION: s}),
+                                 lambda: cfg(safety_lock=False, pick_ids=[]))
+    await auto.on_session(s)
+    assert auto._safety_task is None
+
+
+async def test_no_safety_task_when_not_my_pick_turn():
+    s = make_session(time_left_ms=1000)  # no actions -> not my turn
+    auto = ChampSelectAutomation(FakeLCU({SESSION: s}),
+                                 lambda: cfg(safety_lock=True, pick_ids=[]))
+    await auto.on_session(s)
+    assert auto._safety_task is None
+
+
+async def test_no_safety_task_when_timer_infinite():
+    s = make_session(actions=[[action(7, 0, "pick", champion_id=103, in_progress=True)]],
+                     time_left_ms=1000, timer_infinite=True)
+    auto = ChampSelectAutomation(FakeLCU({SESSION: s}),
+                                 lambda: cfg(safety_lock=True, pick_ids=[]))
+    await auto.on_session(s)
+    assert auto._safety_task is None
+
+
+async def test_safety_lock_skips_if_already_locked_at_fire_time():
+    arming = hovered_session()  # in progress when armed
+    fired = make_session(  # completed by the time the task fires
+        actions=[[action(7, 0, "pick", champion_id=103, completed=True)]], time_left_ms=1000)
+    lcu = FakeLCU({SESSION: fired, PICKABLE: [103]})
+    auto = ChampSelectAutomation(
+        lcu, lambda: cfg(safety_lock=True, safety_lock_buffer_s=1.0, pick_ids=[]))
+    await auto.on_session(arming)
+    await auto._safety_task
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/7") == []
+
+
+async def test_reset_cancels_pending_safety_task():
+    s = make_session(actions=[[action(7, 0, "pick", champion_id=103, in_progress=True)]],
+                     time_left_ms=30000)  # 30s -> long delay, task stays pending
+    auto = ChampSelectAutomation(
+        FakeLCU({SESSION: s, PICKABLE: [103]}),
+        lambda: cfg(safety_lock=True, safety_lock_buffer_s=1.0, pick_ids=[]))
+    await auto.on_session(s)
+    task = auto._safety_task
+    assert task is not None and not task.done()
+    auto.reset()
+    await asyncio.sleep(0)  # let the cancellation propagate
+    assert task.cancelled()
+    assert auto._safety_task is None
