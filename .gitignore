@@ -12,6 +12,12 @@ dist/
 # Logs
 *.log
 
+# Env / secrets (none used today; preventive)
+.env
+.env.*
+*.pem
+*.key
+
 # OS / editor junk
 .DS_Store
 Thumbs.db
