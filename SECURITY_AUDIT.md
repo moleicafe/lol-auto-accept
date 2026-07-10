@@ -30,15 +30,15 @@ dataclass, which has no token field).
 
 ## Findings
 
-Severity — 0 Critical · 0 High · 2 Medium (both fixed) · 4 Low (accepted/backlog)
+Severity — 0 Critical · 0 High · 2 Medium (both fixed) · 4 Low (2 fixed, 2 accepted)
 
 | # | Sev | Location | Issue | Status |
 |---|---|---|---|---|
 | 1 | Medium | `.github/workflows/ci.yml` | No `permissions:` block → workflow token got default (broader) permissions | **Fixed** — `permissions: contents: read` |
 | 2 | Medium | dev venv | `pip` 24.0 had 5 known CVEs (dev tooling only; not shipped in the exe) | **Fixed** — upgraded; `pip-audit` now reports 0 known vulns across all deps |
-| 3 | Low | `src/laa/__main__.py:17` | Single-instance mutex uses the `Global\` namespace: on a *shared* Windows machine another local user could pre-create the name and prevent the app from starting (local griefing only; no data exposure) | Backlog — switch to per-session `Local\` namespace |
+| 3 | Low | `src/laa/__main__.py:17` | Single-instance mutex used the `Global\` namespace: on a *shared* Windows machine another local user could pre-create the name and prevent the app from starting (local griefing only; no data exposure) | **Fixed** — per-session `Local\` namespace |
 | 4 | Low | `src/laa/lcu/connector.py:89,103-104` | LCU TLS verification disabled. Required for Riot's self-signed loopback cert and low practical risk, but could be hardened by pinning Riot's published root CA instead of `CERT_NONE` | Accepted; optional hardening |
-| 5 | Low | `.github/workflows/ci.yml` | Actions pinned by tag (`@v4`/`@v5`) rather than commit SHA — a compromised tag could run modified action code | Backlog — pin to SHAs if supply-chain posture matters |
+| 5 | Low | `.github/workflows/ci.yml` | Actions were pinned by tag (`@v4`/`@v5`) rather than commit SHA — a compromised tag could run modified action code | **Fixed** — all actions pinned to commit SHAs |
 | 6 | Low | release exe | Unsigned binary → SmartScreen warning trains users to click through; PyInstaller onefile also self-extracts to `%TEMP%` at runtime (standard behavior) | Accepted — code-signing cert is the fix; cost/benefit call |
 
 Phase 1 (secrets) came back **clean**: pattern scan over the working tree and the

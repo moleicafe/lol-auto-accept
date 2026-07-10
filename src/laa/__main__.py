@@ -15,7 +15,7 @@ from laa.ui.store import ConfigStore
 from laa.ui.tray import create_tray
 from laa.ui.worker import LCUWorker
 
-MUTEX_NAME = "Global\\LeagueAutoAcceptPy"
+MUTEX_NAME = "Local\\LeagueAutoAcceptPy"
 ERROR_ALREADY_EXISTS = 183
 
 
