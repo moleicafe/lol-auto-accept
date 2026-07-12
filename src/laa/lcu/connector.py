@@ -73,6 +73,8 @@ class LCUConnector:
                 raise
             except Exception as exc:
                 log.info("LCU connection lost: %s", exc)
+            else:
+                log.info("LCU websocket closed; reconnecting")
             await self._emit(events.Disconnected())
             await asyncio.sleep(self._poll_interval)
 
@@ -107,6 +109,7 @@ class LCUConnector:
         kwargs["additional_headers"] = {"Authorization": f"Basic {basic}"}
         async with websockets.connect(f"{ws_scheme}://127.0.0.1:{creds.port}/", **kwargs) as ws:
             await ws.send(json.dumps([5, "OnJsonApiEvent"]))
+            log.info("LCU websocket connected (port %s)", creds.port)
             await self._emit(events.Connected())
             async for raw in ws:
                 event = _parse_message(raw)

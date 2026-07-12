@@ -74,4 +74,5 @@ class Engine:
         if phase != "ChampSelect":
             self._champ.reset()
         self.phase = phase
+        log.info("Gameflow phase: %s", phase)
         self._notify(PHASE_LABELS.get(phase, phase))

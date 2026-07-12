@@ -25,14 +25,20 @@ def acquire_single_instance() -> bool:
 
 
 def setup_logging() -> None:
+    # Attach handlers explicitly (not basicConfig, which silently no-ops if the
+    # root logger already has handlers) so file logging can never be skipped.
     config.config_dir().mkdir(parents=True, exist_ok=True)
-    handler = logging.handlers.RotatingFileHandler(
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    file_handler = logging.handlers.RotatingFileHandler(
         config.config_dir() / "laa.log", maxBytes=1_000_000, backupCount=3, encoding="utf-8")
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[handler, logging.StreamHandler()],
-    )
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+    if sys.stderr is not None:  # absent in a windowed (no-console) exe
+        console = logging.StreamHandler()
+        console.setFormatter(formatter)
+        root.addHandler(console)
 
 
 def main() -> int:
@@ -48,11 +54,14 @@ def main() -> int:
         QMessageBox.warning(None, "League Auto Accept", "League Auto Accept is already running.")
         return 1
     setup_logging()
+    from laa import __version__
+    logging.getLogger("laa.app").info("League Auto Accept %s started", __version__)
     app.setQuitOnLastWindowClosed(False)
 
     store = ConfigStore(config.load())
     bridge = Bridge()
     logging.getLogger("laa").addHandler(QtLogHandler(bridge))
+
 
     window = MainWindow(store, bridge)
     window.tray = create_tray(app, window, store)

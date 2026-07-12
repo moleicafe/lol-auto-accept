@@ -32,11 +32,25 @@ class ChampSelectAutomation:
         self._acted: dict[int, tuple[int, bool]] = {}  # action id -> (championId, completed)
         self._pickable: set[int] | None = None
         self._bannable: set[int] | None = None
+        self._logged_once: set[str] = set()  # one-shot diagnostic log keys per session
+
+    def _log_once(self, key: str, message: str, *args) -> None:
+        if key not in self._logged_once:
+            self._logged_once.add(key)
+            log.info(message, *args)
 
     async def on_session(self, session: dict) -> None:
         cfg = self._get_config()
         if cfg.master_paused:
+            self._log_once("paused", "Champ select: master pause on, doing nothing")
             return
+        self._log_once(
+            "session",
+            "Champ select session: cell=%s actions=%d mine_active=%d timer_phase=%s",
+            session.get("localPlayerCellId"),
+            len(selection.flat_actions(session)),
+            len(selection.my_active_actions(session)),
+            (session.get("timer") or {}).get("phase"))
         if cfg.set_spells and not self._spells_done:
             await self._apply_spells(cfg)
         if cfg.lobby_message and not self._chat_done:
@@ -83,7 +97,11 @@ class ChampSelectAutomation:
             self._bannable = set(await self._lcu.get(
                 "/lol-champ-select/v1/bannable-champion-ids") or [])
         cid = selection.choose_ban(cfg.ban_ids, session, self._bannable)
-        if cid is None or self._acted.get(act["id"]) == (cid, True):
+        if cid is None:
+            self._log_once("no_ban", "No ban candidate: list=%s bannable=%d",
+                           cfg.ban_ids, len(self._bannable))
+            return
+        if self._acted.get(act["id"]) == (cid, True):
             return
         await self._lcu.patch(f"/lol-champ-select/v1/session/actions/{act['id']}",
                               {"championId": cid, "completed": True})
@@ -95,7 +113,11 @@ class ChampSelectAutomation:
             self._pickable = set(await self._lcu.get(
                 "/lol-champ-select/v1/pickable-champion-ids") or [])
         cid = selection.choose_pick(cfg.pick_ids, session, self._pickable)
-        if cid is None or self._acted.get(act["id"]) == (cid, cfg.instalock):
+        if cid is None:
+            self._log_once("no_pick", "No pick candidate: list=%s pickable=%d",
+                           cfg.pick_ids, len(self._pickable))
+            return
+        if self._acted.get(act["id"]) == (cid, cfg.instalock):
             return
         body: dict = {"championId": cid}
         if cfg.instalock:
