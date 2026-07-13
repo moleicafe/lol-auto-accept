@@ -228,3 +228,26 @@ async def test_reset_cancels_pending_safety_task():
     await asyncio.sleep(0)  # let the cancellation propagate
     assert task.cancelled()
     assert auto._safety_task is None
+
+
+async def test_no_action_processing_during_planning_phase():
+    # Ranked pick-intent phase: ban action is already "in progress" but bans
+    # cannot be completed and availability endpoints return placeholder data.
+    s = make_session(actions=[[action(5, 0, "ban", in_progress=True)]], phase="PLANNING")
+    lcu = lcu_with()
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    await auto.on_session(s)
+    assert lcu.sent("GET", "/lol-champ-select/v1/bannable-champion-ids") == []
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5") == []
+
+
+async def test_ban_works_after_planning_does_not_poison_cache():
+    planning = make_session(actions=[[action(5, 0, "ban", in_progress=True)]], phase="PLANNING")
+    banning = make_session(actions=[[action(5, 0, "ban", in_progress=True)]])  # BAN_PICK
+    lcu = lcu_with()  # bannable = {157, 238}
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    await auto.on_session(planning)  # must fetch nothing, cache nothing
+    await auto.on_session(banning)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1] == (
+        "PATCH", "/lol-champ-select/v1/session/actions/5",
+        {"championId": 157, "completed": True})

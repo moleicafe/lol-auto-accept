@@ -83,6 +83,12 @@ class ChampSelectAutomation:
             log.warning("Lobby chat failed: %s", exc)
 
     async def _handle_actions(self, cfg: Config, session: dict) -> None:
+        # Ranked's pick-intent (PLANNING) phase marks the ban action in-progress
+        # before bans can actually be completed, and the bannable/pickable
+        # endpoints return placeholder data that would poison our cache.
+        if (session.get("timer") or {}).get("phase") == "PLANNING":
+            self._log_once("planning", "Champ select: planning phase, waiting for ban phase")
+            return
         for act in selection.my_active_actions(session):
             try:
                 if act.get("type") == "ban" and cfg.ban_ids:
