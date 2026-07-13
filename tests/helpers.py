@@ -28,14 +28,22 @@ def make_session(cell: int = 0, actions: list[list[dict]] | None = None,
 
 
 class FakeLCU:
-    """Records calls; returns canned responses keyed by (METHOD, path)."""
+    """Records calls; returns canned responses keyed by (METHOD, path).
 
-    def __init__(self, responses: dict[tuple[str, str], Any] | None = None) -> None:
+    Entries in `errors` (same key shape) are raised instead of returned,
+    emulating LCU rejections. The call is still recorded.
+    """
+
+    def __init__(self, responses: dict[tuple[str, str], Any] | None = None,
+                 errors: dict[tuple[str, str], Exception] | None = None) -> None:
         self.responses = responses or {}
+        self.errors = errors or {}
         self.calls: list[tuple[str, str, Any]] = []
 
     async def _do(self, method: str, path: str, body: Any = None) -> Any:
         self.calls.append((method, path, body))
+        if (method, path) in self.errors:
+            raise self.errors[(method, path)]
         return self.responses.get((method, path))
 
     async def get(self, path):

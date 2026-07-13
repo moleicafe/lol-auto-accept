@@ -119,13 +119,12 @@ async def test_pick_refetches_when_pickable_initially_empty():
         ("PATCH", "/lol-champ-select/v1/session/actions/7", {"championId": 103})]
 
 
-async def test_ban_refetches_when_bannable_initially_empty():
+async def test_ban_attempted_directly_when_bannable_endpoint_empty():
+    # An empty (or useless) bannable list no longer blocks banning: the client
+    # itself validates, so we attempt the top list choice directly.
     lcu = lcu_with(bannable=[])
     auto = ChampSelectAutomation(lcu, lambda: cfg())
     s = make_session(actions=[[action(5, 0, "ban", in_progress=True)]])
-    await auto.on_session(s)
-    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5") == []
-    lcu.responses[BANNABLE] = [157, 238]
     await auto.on_session(s)
     assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5") == [
         ("PATCH", "/lol-champ-select/v1/session/actions/5",
@@ -251,3 +250,39 @@ async def test_ban_works_after_planning_does_not_poison_cache():
     assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1] == (
         "PATCH", "/lol-champ-select/v1/session/actions/5",
         {"championId": 157, "completed": True})
+
+
+async def test_ban_attempted_even_when_bannable_endpoint_returns_garbage():
+    # Live-captured failure: bannable-champion-ids returned a bogus 1-champion
+    # list in ranked. The client itself validates bans, so we attempt anyway.
+    lcu = lcu_with(bannable=[999])
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    await auto.on_session(make_session(actions=[[action(5, 0, "ban", in_progress=True)]]))
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1] == (
+        "PATCH", "/lol-champ-select/v1/session/actions/5",
+        {"championId": 157, "completed": True})
+
+
+async def test_ban_falls_to_next_choice_when_lcu_rejects_first():
+    from laa.lcu.connector import LCUError
+    lcu = lcu_with(bannable=[999])
+    lcu.errors[("PATCH", "/lol-champ-select/v1/session/actions/5")] = LCUError("400: invalid")
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    s = make_session(actions=[[action(5, 0, "ban", in_progress=True)]])
+    await auto.on_session(s)          # tries 157 -> LCU rejects
+    del lcu.errors[("PATCH", "/lol-champ-select/v1/session/actions/5")]
+    await auto.on_session(s)          # next update: must move on to 238
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1][2] == {
+        "championId": 238, "completed": True}
+
+
+async def test_ban_still_skips_champs_already_banned_in_session():
+    lcu = lcu_with(bannable=[999])    # endpoint garbage; session is the truth
+    auto = ChampSelectAutomation(lcu, lambda: cfg())
+    s = make_session(actions=[
+        [action(1, 3, "ban", champion_id=157, completed=True)],   # 157 already banned
+        [action(5, 0, "ban", in_progress=True)],
+    ])
+    await auto.on_session(s)
+    assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1][2] == {
+        "championId": 238, "completed": True}

@@ -32,6 +32,7 @@ class ChampSelectAutomation:
         self._acted: dict[int, tuple[int, bool]] = {}  # action id -> (championId, completed)
         self._pickable: set[int] | None = None
         self._bannable: set[int] | None = None
+        self._rejected_bans: set[int] = set()  # ban targets the client refused this session
         self._logged_once: set[str] = set()  # one-shot diagnostic log keys per session
 
     def _log_once(self, key: str, message: str, *args) -> None:
@@ -99,18 +100,42 @@ class ChampSelectAutomation:
                 log.warning("Champ select action failed: %s", exc)
 
     async def _do_ban(self, cfg: Config, session: dict, act: dict) -> None:
-        if not self._bannable:
-            self._bannable = set(await self._lcu.get(
-                "/lol-champ-select/v1/bannable-champion-ids") or [])
+        if self._bannable is None:
+            try:
+                self._bannable = set(await self._lcu.get(
+                    "/lol-champ-select/v1/bannable-champion-ids") or [])
+            except LCUError as exc:
+                log.warning("Bannable fetch failed: %s", exc)
+                self._bannable = set()
+            self._log_once("bannable", "Bannable endpoint returned %d ids%s",
+                           len(self._bannable),
+                           "" if len(self._bannable) > 20
+                           else f": {sorted(self._bannable)}")
         cid = selection.choose_ban(cfg.ban_ids, session, self._bannable)
         if cid is None:
-            self._log_once("no_ban", "No ban candidate: list=%s bannable=%d",
-                           cfg.ban_ids, len(self._bannable))
+            # Live-captured in ranked: the bannable endpoint returns bogus data.
+            # The client validates bans itself, so attempt directly from the
+            # list, skipping champions already banned or refused this session.
+            gone = selection.banned_ids(session) | self._rejected_bans
+            cid = next((c for c in cfg.ban_ids if c not in gone), None)
+            if cid is not None:
+                self._log_once("ban_fallback",
+                               "Bannable endpoint gave no candidate; attempting "
+                               "direct ban of %s", cid)
+        if cid is None:
+            self._log_once("no_ban", "No ban candidate: list=%s bannable=%d rejected=%s",
+                           cfg.ban_ids, len(self._bannable), sorted(self._rejected_bans))
             return
         if self._acted.get(act["id"]) == (cid, True):
             return
-        await self._lcu.patch(f"/lol-champ-select/v1/session/actions/{act['id']}",
-                              {"championId": cid, "completed": True})
+        try:
+            await self._lcu.patch(f"/lol-champ-select/v1/session/actions/{act['id']}",
+                                  {"championId": cid, "completed": True})
+        except LCUError as exc:
+            self._rejected_bans.add(cid)
+            log.warning("Ban of champion %s rejected by client (%s); will try "
+                        "next choice", cid, exc)
+            return
         self._acted[act["id"]] = (cid, True)
         log.info("Banned champion %s", cid)
 

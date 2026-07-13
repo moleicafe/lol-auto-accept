@@ -46,4 +46,16 @@ class LCUWorker(threading.Thread):
                 self._bridge.catalog_ready.emit(catalog.all())
 
         engine_ref.append(Engine(connector, self._store.get, catalog, applier, notify))
-        await connector.run()
+
+        async def heartbeat() -> None:
+            # Proves both the worker loop and the log sinks are alive; if
+            # heartbeats stop while the UI works, a sink died (field bug).
+            while True:
+                await asyncio.sleep(60)
+                log.info("heartbeat: phase=%s", engine_ref[0].phase or "-")
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        try:
+            await connector.run()
+        finally:
+            heartbeat_task.cancel()

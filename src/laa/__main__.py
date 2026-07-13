@@ -39,6 +39,12 @@ def setup_logging() -> None:
         console = logging.StreamHandler()
         console.setFormatter(formatter)
         root.addHandler(console)
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # one INFO line per request otherwise
+    # Second, independent sink on the "laa" logger: if one handler dies
+    # silently (observed in the field), the other still records the session.
+    backup = logging.FileHandler(config.config_dir() / "laa-ui.log", encoding="utf-8")
+    backup.setFormatter(formatter)
+    logging.getLogger("laa").addHandler(backup)
 
 
 def main() -> int:
