@@ -102,3 +102,22 @@ def test_pause_syncs_between_window_and_tray(qtbot, tmp_path):
         assert store.get().master_paused is False
     finally:
         tray.hide()
+
+
+def test_app_tab_autostart_toggle(qtbot, tmp_path, monkeypatch):
+    import laa.ui.autostart as autostart
+    calls: list = []
+    monkeypatch.setattr(autostart, "available", lambda: True)
+    monkeypatch.setattr(autostart, "is_enabled", lambda: False)
+    monkeypatch.setattr(autostart, "set_enabled", calls.append)
+    win = MainWindow(make_store(tmp_path), Bridge())
+    qtbot.addWidget(win)
+    assert win._autostart.isEnabled()
+    win._autostart.setChecked(True)
+    assert calls == [True]
+
+
+def test_autostart_checkbox_disabled_when_running_from_source(qtbot, tmp_path):
+    win = MainWindow(make_store(tmp_path), Bridge())  # tests run unfrozen
+    qtbot.addWidget(win)
+    assert not win._autostart.isEnabled()

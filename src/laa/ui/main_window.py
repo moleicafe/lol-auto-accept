@@ -6,10 +6,15 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QCompleter, QFormLayout, QG
                                QPlainTextEdit, QPushButton, QSlider, QSystemTrayIcon,
                                QTabWidget, QVBoxLayout, QWidget)
 
+import logging
+
 from laa import __version__
+from laa.ui import autostart
 from laa.ui.assets import logo_icon
 from laa.ui.bridge import Bridge
 from laa.ui.store import ConfigStore
+
+log = logging.getLogger(__name__)
 
 SUMMONER_SPELLS = {
     1: "Cleanse", 3: "Exhaust", 4: "Flash", 6: "Ghost", 7: "Heal", 11: "Smite",
@@ -124,6 +129,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self._queue_tab(cfg), "Queue")
         tabs.addTab(self._champ_tab(cfg), "Champ Select")
         tabs.addTab(self._runes_tab(cfg), "Runes")
+        tabs.addTab(self._app_tab(), "App")
 
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
@@ -250,6 +256,30 @@ class MainWindow(QMainWindow):
         lay.addWidget(note)
         lay.addStretch(1)
         return w
+
+    def _app_tab(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        self._autostart = QCheckBox("Start with Windows (minimized to tray)")
+        if autostart.available():
+            self._autostart.setChecked(autostart.is_enabled())
+            self._autostart.toggled.connect(self._on_autostart)
+        else:
+            self._autostart.setEnabled(False)
+            self._autostart.setToolTip(
+                "Available when running the packaged LeagueAutoAccept.exe")
+        version = QLabel(f"Version {__version__}")
+        lay.addWidget(self._autostart)
+        lay.addWidget(version)
+        lay.addStretch(1)
+        return w
+
+    def _on_autostart(self, on: bool) -> None:
+        try:
+            autostart.set_enabled(on)
+            log.info("Start with Windows %s", "enabled" if on else "disabled")
+        except OSError as exc:
+            log.warning("Could not update Start with Windows: %s", exc)
 
     def _on_catalog(self, names: dict) -> None:
         self._picks.set_catalog(names)

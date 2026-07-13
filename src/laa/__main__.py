@@ -72,7 +72,8 @@ def main() -> int:
     window = MainWindow(store, bridge)
     window.tray = create_tray(app, window, store)
     LCUWorker(store, bridge).start()
-    window.show()
+    if "--minimized" not in sys.argv:  # autostart launches go straight to tray
+        window.show()
     return app.exec()
 
 
