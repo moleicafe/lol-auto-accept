@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
+from laa import __version__
 from laa.ui.assets import tray_icon
 from laa.ui.main_window import MainWindow
 from laa.ui.store import ConfigStore
@@ -49,6 +50,6 @@ def create_tray(app: QApplication, window: MainWindow, store: ConfigStore) -> QS
     tray.activated.connect(
         lambda reason: window.showNormal()
         if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
-    tray.setToolTip("League Auto Accept")
+    tray.setToolTip(f"League Auto Accept v{__version__}")
     tray.show()
     return tray

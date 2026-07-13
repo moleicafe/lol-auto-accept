@@ -15,7 +15,8 @@ def test_window_constructs_and_reacts_to_signals(qtbot, tmp_path):
     bridge = Bridge()
     win = MainWindow(store, bridge)
     qtbot.addWidget(win)
-    assert win.windowTitle() == "League Auto Accept"
+    from laa import __version__
+    assert win.windowTitle() == f"League Auto Accept v{__version__}"
     bridge.status.emit("Connected")
     assert win._status.text() == "Connected"
     bridge.catalog_ready.emit({103: "Ahri", 1: "Annie"})
