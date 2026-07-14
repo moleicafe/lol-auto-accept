@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 
+from laa import __version__
 from laa.core.engine import Engine
 from laa.lcu.catalog import ChampionCatalog
 from laa.lcu.connector import LCUConnector
@@ -11,6 +12,7 @@ from laa.runes.applier import RuneApplier
 from laa.runes.provider import OPGGProvider
 from laa.ui.bridge import Bridge
 from laa.ui.store import ConfigStore
+from laa.updates import check_for_update
 
 log = logging.getLogger(__name__)
 
@@ -54,8 +56,19 @@ class LCUWorker(threading.Thread):
                 await asyncio.sleep(60)
                 log.info("heartbeat: phase=%s", engine_ref[0].phase or "-")
 
+        async def update_check() -> None:
+            await asyncio.sleep(3)  # let startup settle first
+            if not self._store.get().check_updates:
+                return
+            info = await check_for_update(__version__)
+            if info is not None:
+                log.info("Update available: v%s", info.version)
+                self._bridge.update_available.emit(info.version, info.url)
+
         heartbeat_task = asyncio.create_task(heartbeat())
+        update_task = asyncio.create_task(update_check())
         try:
             await connector.run()
         finally:
             heartbeat_task.cancel()
+            update_task.cancel()

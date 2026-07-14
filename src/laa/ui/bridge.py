@@ -11,6 +11,7 @@ class Bridge(QObject):
     status = Signal(str)
     log_line = Signal(str)
     catalog_ready = Signal(object)  # dict[int, str]
+    update_available = Signal(str, str)  # version, release url
 
 
 class QtLogHandler(logging.Handler):

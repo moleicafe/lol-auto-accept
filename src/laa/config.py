@@ -36,6 +36,7 @@ class Config:
     use_meta_spells: bool = False
     # ui
     tray_hint_shown: bool = False
+    check_updates: bool = True
 
 
 def config_dir() -> Path:

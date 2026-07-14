@@ -149,6 +149,7 @@ class MainWindow(QMainWindow):
         bridge.status.connect(self._status.setText)
         bridge.log_line.connect(self._log.appendPlainText)
         bridge.catalog_ready.connect(self._on_catalog)
+        bridge.update_available.connect(self._on_update_available)
 
     def _queue_tab(self, cfg) -> QWidget:
         w = QWidget()
@@ -268,11 +269,31 @@ class MainWindow(QMainWindow):
             self._autostart.setEnabled(False)
             self._autostart.setToolTip(
                 "Available when running the packaged LeagueAutoAccept.exe")
+        cfg = self._store.get()
+        self._check_updates = QCheckBox("Check for updates on launch")
+        self._check_updates.setChecked(cfg.check_updates)
+        self._check_updates.toggled.connect(
+            lambda on: self._store.update(check_updates=on))
+        self._update_label = QLabel()
+        self._update_label.setOpenExternalLinks(True)
+        self._update_label.setVisible(False)
         version = QLabel(f"Version {__version__}")
         lay.addWidget(self._autostart)
+        lay.addWidget(self._check_updates)
+        lay.addWidget(self._update_label)
         lay.addWidget(version)
         lay.addStretch(1)
         return w
+
+    def _on_update_available(self, version: str, url: str) -> None:
+        self._update_label.setText(
+            f'Update available: <a href="{url}">v{version} — download</a>')
+        self._update_label.setVisible(True)
+        log.info("Update available: v%s (%s)", version, url)
+        if self.tray is not None:
+            self.tray.showMessage(
+                "Update available",
+                f"League Auto Accept v{version} is out - open the App tab to download.")
 
     def _on_autostart(self, on: bool) -> None:
         try:

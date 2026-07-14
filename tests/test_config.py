@@ -48,3 +48,10 @@ def test_safety_lock_roundtrip(tmp_path: Path):
     cfg = Config(safety_lock=True, safety_lock_buffer_s=2.5)
     save(cfg, tmp_path / "c.json")
     assert load(tmp_path / "c.json") == cfg
+
+
+def test_check_updates_default_and_roundtrip(tmp_path: Path):
+    assert load(tmp_path / "missing.json").check_updates is True
+    cfg = Config(check_updates=False)
+    save(cfg, tmp_path / "c.json")
+    assert load(tmp_path / "c.json").check_updates is False

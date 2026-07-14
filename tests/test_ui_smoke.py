@@ -121,3 +121,22 @@ def test_autostart_checkbox_disabled_when_running_from_source(qtbot, tmp_path):
     win = MainWindow(make_store(tmp_path), Bridge())  # tests run unfrozen
     qtbot.addWidget(win)
     assert not win._autostart.isEnabled()
+
+
+def test_update_available_shows_link_and_tray_message(qtbot, tmp_path):
+    bridge = Bridge()
+    win = MainWindow(make_store(tmp_path), bridge)
+    qtbot.addWidget(win)
+    assert not win._update_label.isVisible()
+    bridge.update_available.emit("9.9.9", "https://example.com/rel")
+    assert "9.9.9" in win._update_label.text()
+    assert "https://example.com/rel" in win._update_label.text()
+
+
+def test_check_updates_checkbox_writes_config(qtbot, tmp_path):
+    store = make_store(tmp_path)
+    win = MainWindow(store, Bridge())
+    qtbot.addWidget(win)
+    assert win._check_updates.isChecked()  # default on
+    win._check_updates.setChecked(False)
+    assert store.get().check_updates is False
