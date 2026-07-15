@@ -117,7 +117,11 @@ class BuildApplier:
             if not summoner_id:
                 return
             path = f"/lol-item-sets/v1/item-sets/{summoner_id}/sets"
-            document = await self._lcu.get(path) or {}
+            document = await self._lcu.get(path)
+            if not isinstance(document, dict):
+                # Unexpected shape — don't risk overwriting the user's own sets.
+                log.warning("Item set doc had unexpected shape; skipping")
+                return
             await self._lcu.put(path, item_set_document(document, champion_id, title,
                                                         build.items))
             log.info("Applied item set %r", title)
