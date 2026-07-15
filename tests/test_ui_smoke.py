@@ -140,3 +140,12 @@ def test_check_updates_checkbox_writes_config(qtbot, tmp_path):
     assert win._check_updates.isChecked()  # default on
     win._check_updates.setChecked(False)
     assert store.get().check_updates is False
+
+
+def test_auto_items_checkbox_writes_config(qtbot, tmp_path):
+    store = make_store(tmp_path)
+    win = MainWindow(store, Bridge())
+    qtbot.addWidget(win)
+    assert win._auto_items.isChecked()  # default on
+    win._auto_items.setChecked(False)
+    assert store.get().auto_items is False

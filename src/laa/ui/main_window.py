@@ -128,7 +128,7 @@ class MainWindow(QMainWindow):
         tabs = QTabWidget()
         tabs.addTab(self._queue_tab(cfg), "Queue")
         tabs.addTab(self._champ_tab(cfg), "Champ Select")
-        tabs.addTab(self._runes_tab(cfg), "Runes")
+        tabs.addTab(self._runes_tab(cfg), "Builds")
         tabs.addTab(self._app_tab(), "App")
 
         self._log = QPlainTextEdit()
@@ -249,11 +249,15 @@ class MainWindow(QMainWindow):
         meta_spells = QCheckBox("Also use meta summoner spells")
         meta_spells.setChecked(cfg.use_meta_spells)
         meta_spells.toggled.connect(lambda on: self._store.update(use_meta_spells=on))
-        note = QLabel("Runes are written to a page named 'LAA: <Champion>'.\n"
-                      "If the meta fetch fails, your current runes are left untouched.")
+        self._auto_items = QCheckBox("Auto-import meta item set")
+        self._auto_items.setChecked(cfg.auto_items)
+        self._auto_items.toggled.connect(lambda on: self._store.update(auto_items=on))
+        note = QLabel("Runes and the item set are written to 'LAA: <Champion>'.\n"
+                      "If the meta fetch fails, your current setup is left untouched.")
         note.setWordWrap(True)
         lay.addWidget(runes)
         lay.addWidget(meta_spells)
+        lay.addWidget(self._auto_items)
         lay.addWidget(note)
         lay.addStretch(1)
         return w
