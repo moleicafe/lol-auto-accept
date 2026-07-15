@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -18,7 +18,45 @@ POSITION_MAP = {"top": "top", "jungle": "jungle", "middle": "mid",
 PRIMARY_NAME_MAP = {"TOP": "top", "JUNGLE": "jungle", "MID": "mid",
                     "ADC": "adc", "SUPPORT": "support"}
 DEFAULT_POSITION = "mid"  # last-resort when an unassigned champion's primary can't be read
+SITUATIONAL_COUNT = 6  # how many late-game items to include in the Situational block
 # ----------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ItemBuild:
+    starter_ids: list[int]
+    core_ids: list[int]
+    boots_ids: list[int]
+    situational_ids: list[int]
+
+    def is_empty(self) -> bool:
+        return not (self.starter_ids or self.core_ids
+                    or self.boots_ids or self.situational_ids)
+
+
+def _top_item_ids(entries) -> list[int]:
+    entries = entries or []
+    if not entries:
+        return []
+    best = max(entries, key=lambda e: e.get("play", 0))
+    return [int(i) for i in best.get("ids", [])]
+
+
+def parse_item_build(data: dict) -> ItemBuild:
+    starter = _top_item_ids(data.get("starter_items"))
+    core = _top_item_ids(data.get("core_items"))
+    boots = _top_item_ids(data.get("boots"))
+    shown = set(starter) | set(core) | set(boots)
+    situational: list[int] = []
+    for entry in sorted(data.get("last_items") or [],
+                        key=lambda e: e.get("play", 0), reverse=True):
+        for raw in entry.get("ids", []):
+            iid = int(raw)
+            if iid not in shown and iid not in situational:
+                situational.append(iid)
+        if len(situational) >= SITUATIONAL_COUNT:
+            break
+    return ItemBuild(starter, core, boots, situational[:SITUATIONAL_COUNT])
 
 
 @dataclass(frozen=True)
@@ -27,6 +65,7 @@ class Build:
     sub_style_id: int
     perk_ids: list[int]           # 6 runes (4 primary + 2 secondary) + 3 stat shards, LCU order
     spell_ids: tuple[int, int]
+    items: "ItemBuild | None" = field(default=None, compare=False)
 
 
 def parse_champion(data: dict) -> Build | None:
@@ -41,11 +80,16 @@ def parse_champion(data: dict) -> Build | None:
                     + [int(p) for p in top["secondary_rune_ids"]]
                     + [int(p) for p in top["stat_mod_ids"]])
         spell_ids = (int(best_spells["ids"][0]), int(best_spells["ids"][1]))
+        try:
+            items = parse_item_build(data)
+        except (KeyError, IndexError, TypeError, ValueError):
+            items = None
         return Build(
             primary_style_id=int(top["primary_page_id"]),
             sub_style_id=int(top["secondary_page_id"]),
             perk_ids=perk_ids,
             spell_ids=spell_ids,
+            items=items,
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None

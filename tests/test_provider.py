@@ -1,6 +1,58 @@
 import httpx
 
-from laa.runes.provider import Build, OPGGProvider, parse_champion
+from laa.runes.provider import (Build, ItemBuild, OPGGProvider, SITUATIONAL_COUNT,
+                                parse_champion, parse_item_build)
+
+
+def _items_payload():
+    return {
+        "starter_items": [
+            {"ids": [1056, 2003], "play": 100},
+            {"ids": [1054], "play": 999},           # highest play -> chosen
+        ],
+        "core_items": [{"ids": [3118, 4645, 3157], "play": 500}],
+        "boots": [{"ids": [3020], "play": 300}, {"ids": [3111], "play": 10}],
+        "last_items": [
+            {"ids": [3157], "play": 90},            # dup of a core item -> skipped
+            {"ids": [3089], "play": 80},
+            {"ids": [3135], "play": 70},
+            {"ids": [3165], "play": 60},
+            {"ids": [3116], "play": 50},
+            {"ids": [3102], "play": 40},
+            {"ids": [3040], "play": 30},
+            {"ids": [3041], "play": 20},            # 7th unique -> beyond cap of 6
+        ],
+    }
+
+
+def test_parse_item_build_picks_top_and_dedupes():
+    build = parse_item_build(_items_payload())
+    assert build.starter_ids == [1054]              # highest play
+    assert build.core_ids == [3118, 4645, 3157]
+    assert build.boots_ids == [3020]
+    assert build.situational_ids == [3089, 3135, 3165, 3116, 3102, 3040]
+    assert len(build.situational_ids) == SITUATIONAL_COUNT
+    assert not build.is_empty()
+
+
+def test_parse_item_build_empty_when_no_item_fields():
+    build = parse_item_build({})
+    assert build == ItemBuild([], [], [], [])
+    assert build.is_empty()
+
+
+def test_parse_champion_attaches_items():
+    data = {
+        "runes": [{"primary_page_id": 8100, "secondary_page_id": 8200,
+                   "primary_rune_ids": [1, 2, 3, 4], "secondary_rune_ids": [5, 6],
+                   "stat_mod_ids": [7, 8, 9], "play": 5}],
+        "summoner_spells": [{"ids": [4, 14], "play": 5}],
+        **_items_payload(),
+    }
+    build = parse_champion(data)
+    assert build is not None
+    assert build.items == ItemBuild([1054], [3118, 4645, 3157], [3020],
+                                    [3089, 3135, 3165, 3116, 3102, 3040])
 
 # One real op.gg "runes" entry (Ahri mid, 2026-07-08) plus a lower-play decoy.
 RUNE_TOP = {
