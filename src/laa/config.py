@@ -33,6 +33,7 @@ class Config:
     lobby_message: str = ""
     # runes
     auto_runes: bool = True
+    auto_items: bool = True
     use_meta_spells: bool = False
     # ui
     tray_hint_shown: bool = False

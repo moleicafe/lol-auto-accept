@@ -55,3 +55,10 @@ def test_check_updates_default_and_roundtrip(tmp_path: Path):
     cfg = Config(check_updates=False)
     save(cfg, tmp_path / "c.json")
     assert load(tmp_path / "c.json").check_updates is False
+
+
+def test_auto_items_default_and_roundtrip(tmp_path: Path):
+    assert load(tmp_path / "missing.json").auto_items is True
+    cfg = Config(auto_items=False)
+    save(cfg, tmp_path / "c.json")
+    assert load(tmp_path / "c.json").auto_items is False
