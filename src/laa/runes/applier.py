@@ -51,7 +51,7 @@ def item_set_document(existing_doc: dict, champion_id: int, title: str,
     return doc
 
 
-class RuneApplier:
+class BuildApplier:
     def __init__(self, lcu, provider, get_config: Callable[[], Config],
                  get_champion_name: Callable[[int], str]) -> None:
         self._lcu = lcu
@@ -61,7 +61,7 @@ class RuneApplier:
 
     async def apply(self, champion_id: int, role: str) -> None:
         cfg = self._get_config()
-        if not (cfg.auto_runes or cfg.use_meta_spells) or cfg.master_paused:
+        if not (cfg.auto_runes or cfg.use_meta_spells or cfg.auto_items) or cfg.master_paused:
             return
         build = await self._provider.get_build(champion_id, role)
         if build is None:
@@ -71,6 +71,8 @@ class RuneApplier:
             await self._apply_page(build, champion_id)
         if cfg.use_meta_spells:
             await self._apply_spells(build, cfg)
+        if cfg.auto_items:
+            await self._apply_item_set(build, champion_id)
 
     async def _apply_page(self, build: Build, champion_id: int) -> None:
         payload = {
@@ -104,3 +106,20 @@ class RuneApplier:
             log.info("Applied meta summoner spells")
         except LCUError as exc:
             log.warning("Applying meta spells failed: %s", exc)
+
+    async def _apply_item_set(self, build: Build, champion_id: int) -> None:
+        if build.items is None or build.items.is_empty():
+            return
+        title = f"{PAGE_PREFIX} {self._get_champion_name(champion_id)}"
+        try:
+            summoner = await self._lcu.get("/lol-summoner/v1/current-summoner") or {}
+            summoner_id = summoner.get("summonerId")
+            if not summoner_id:
+                return
+            path = f"/lol-item-sets/v1/item-sets/{summoner_id}/sets"
+            document = await self._lcu.get(path) or {}
+            await self._lcu.put(path, item_set_document(document, champion_id, title,
+                                                        build.items))
+            log.info("Applied item set %r", title)
+        except (LCUError, KeyError, TypeError) as exc:
+            log.warning("Applying item set failed: %s", exc)
