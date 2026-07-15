@@ -16,6 +16,8 @@ Run against the real League client (a practice-tool or draft lobby). Check off e
 - [ ] Lobby message posted exactly once
 - [ ] On lock-in: rune page "LAA: <Champion>" created and selected; re-lock next game
       overwrites the same page (no page-slot leak)
+- [ ] On lock-in: item set "LAA: <Champion>" appears for that champion in the shop with
+      sensible items (starters/core/boots/situational); personal item sets are untouched
 - [ ] Kill the League client mid-lobby -> app returns to "Waiting for League client",
       reconnects when client restarts
 - [ ] Close button hides to tray (hint shown once); tray Quit exits; second app copy

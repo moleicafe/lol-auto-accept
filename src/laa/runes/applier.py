@@ -6,14 +6,52 @@ from typing import Callable
 from laa.config import Config
 from laa.core.selection import ordered_spells
 from laa.lcu.connector import LCUError
-from laa.runes.provider import Build
+from laa.runes.provider import Build, ItemBuild
 
 log = logging.getLogger(__name__)
 
 PAGE_PREFIX = "LAA:"
 
 
-class RuneApplier:
+def _item_block(block_type: str, ids: list[int]) -> dict:
+    return {"type": block_type, "items": [{"id": str(i), "count": 1} for i in ids]}
+
+
+def make_item_set(champion_id: int, title: str, item_build: ItemBuild) -> dict:
+    blocks = []
+    if item_build.starter_ids:
+        blocks.append(_item_block("Starters", item_build.starter_ids))
+    if item_build.core_ids:
+        blocks.append(_item_block("Core", item_build.core_ids))
+    if item_build.boots_ids:
+        blocks.append(_item_block("Boots", item_build.boots_ids))
+    if item_build.situational_ids:
+        blocks.append(_item_block("Situational", item_build.situational_ids))
+    return {
+        "title": title,
+        "type": "custom",
+        "map": "any",
+        "mode": "any",
+        "sortrank": 0,
+        "startedFrom": "blank",
+        "associatedChampions": [champion_id],
+        "associatedMaps": [],
+        "preferredItemSlots": [],
+        "blocks": blocks,
+    }
+
+
+def item_set_document(existing_doc: dict, champion_id: int, title: str,
+                      item_build: ItemBuild) -> dict:
+    doc = dict(existing_doc) if isinstance(existing_doc, dict) else {}
+    kept = [s for s in (doc.get("itemSets") or [])
+            if not str(s.get("title", "")).startswith(PAGE_PREFIX)]
+    kept.append(make_item_set(champion_id, title, item_build))
+    doc["itemSets"] = kept
+    return doc
+
+
+class BuildApplier:
     def __init__(self, lcu, provider, get_config: Callable[[], Config],
                  get_champion_name: Callable[[int], str]) -> None:
         self._lcu = lcu
@@ -23,7 +61,7 @@ class RuneApplier:
 
     async def apply(self, champion_id: int, role: str) -> None:
         cfg = self._get_config()
-        if not (cfg.auto_runes or cfg.use_meta_spells) or cfg.master_paused:
+        if not (cfg.auto_runes or cfg.use_meta_spells or cfg.auto_items) or cfg.master_paused:
             return
         build = await self._provider.get_build(champion_id, role)
         if build is None:
@@ -33,6 +71,8 @@ class RuneApplier:
             await self._apply_page(build, champion_id)
         if cfg.use_meta_spells:
             await self._apply_spells(build, cfg)
+        if cfg.auto_items:
+            await self._apply_item_set(build, champion_id)
 
     async def _apply_page(self, build: Build, champion_id: int) -> None:
         payload = {
@@ -66,3 +106,24 @@ class RuneApplier:
             log.info("Applied meta summoner spells")
         except LCUError as exc:
             log.warning("Applying meta spells failed: %s", exc)
+
+    async def _apply_item_set(self, build: Build, champion_id: int) -> None:
+        if build.items is None or build.items.is_empty():
+            return
+        title = f"{PAGE_PREFIX} {self._get_champion_name(champion_id)}"
+        try:
+            summoner = await self._lcu.get("/lol-summoner/v1/current-summoner") or {}
+            summoner_id = summoner.get("summonerId")
+            if not summoner_id:
+                return
+            path = f"/lol-item-sets/v1/item-sets/{summoner_id}/sets"
+            document = await self._lcu.get(path)
+            if not isinstance(document, dict):
+                # Unexpected shape — don't risk overwriting the user's own sets.
+                log.warning("Item set doc had unexpected shape; skipping")
+                return
+            await self._lcu.put(path, item_set_document(document, champion_id, title,
+                                                        build.items))
+            log.info("Applied item set %r", title)
+        except (LCUError, KeyError, TypeError) as exc:
+            log.warning("Applying item set failed: %s", exc)

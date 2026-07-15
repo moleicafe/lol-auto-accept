@@ -1,7 +1,38 @@
 from laa.config import Config
-from laa.runes.applier import RuneApplier
-from laa.runes.provider import Build
+from laa.runes.applier import BuildApplier, item_set_document, make_item_set
+from laa.runes.provider import Build, ItemBuild
 from tests.helpers import FakeLCU
+
+ITEMS = ItemBuild(starter_ids=[1054], core_ids=[3118, 4645, 3157],
+                  boots_ids=[3020], situational_ids=[3089, 3135])
+
+
+def test_make_item_set_shape():
+    s = make_item_set(103, "LAA: Ahri", ITEMS)
+    assert s["title"] == "LAA: Ahri"
+    assert s["associatedChampions"] == [103]
+    assert s["type"] == "custom"
+    assert [b["type"] for b in s["blocks"]] == ["Starters", "Core", "Boots", "Situational"]
+    assert s["blocks"][1]["items"] == [
+        {"id": "3118", "count": 1}, {"id": "4645", "count": 1}, {"id": "3157", "count": 1}]
+
+
+def test_make_item_set_omits_empty_blocks():
+    s = make_item_set(1, "LAA: Annie", ItemBuild([], [3020], [], []))
+    assert [b["type"] for b in s["blocks"]] == ["Core"]
+
+
+def test_item_set_document_keeps_user_sets_and_replaces_laa():
+    existing = {"itemSets": [
+        {"title": "My build", "blocks": []},
+        {"title": "LAA: Yasuo", "blocks": []},
+    ], "timestamp": 123}
+    doc = item_set_document(existing, 103, "LAA: Ahri", ITEMS)
+    titles = [s["title"] for s in doc["itemSets"]]
+    assert "My build" in titles
+    assert "LAA: Yasuo" not in titles
+    assert titles.count("LAA: Ahri") == 1
+    assert doc["timestamp"] == 123
 
 PAGES = ("GET", "/lol-perks/v1/pages")
 BUILD = Build(primary_style_id=8100, sub_style_id=8000,
@@ -29,7 +60,7 @@ class StubProvider:
 
 def make_applier(lcu, build=BUILD, **cfg_kw):
     cfg = Config(**{"auto_runes": True, "use_meta_spells": False, **cfg_kw})
-    return RuneApplier(lcu, StubProvider(build), lambda: cfg, lambda cid: "Ahri")
+    return BuildApplier(lcu, StubProvider(build), lambda: cfg, lambda cid: "Ahri")
 
 
 async def test_creates_page_when_no_laa_page_exists():
@@ -63,6 +94,48 @@ async def test_provider_failure_is_silent():
 
 async def test_disabled_features_skip_provider():
     lcu = FakeLCU()
-    applier = make_applier(lcu, auto_runes=False, use_meta_spells=False)
+    applier = make_applier(lcu, auto_runes=False, use_meta_spells=False, auto_items=False)
     await applier.apply(103, "middle")
     assert applier._provider.requests == []
+
+
+SUMMONER = ("GET", "/lol-summoner/v1/current-summoner")
+SETS = ("GET", "/lol-item-sets/v1/item-sets/55/sets")
+
+BUILD_WITH_ITEMS = Build(
+    primary_style_id=8100, sub_style_id=8000,
+    perk_ids=[8112, 8143, 8138, 8135, 8009, 9105, 5008, 5008, 5002],
+    spell_ids=(14, 4), items=ITEMS)
+
+
+async def test_item_set_written_keeping_user_sets():
+    lcu = FakeLCU({
+        PAGES: [],
+        SUMMONER: {"summonerId": 55},
+        SETS: {"itemSets": [{"title": "My build", "blocks": []},
+                            {"title": "LAA: Old", "blocks": []}], "timestamp": 1},
+    })
+    await make_applier(lcu, build=BUILD_WITH_ITEMS, auto_runes=False).apply(103, "middle")
+    puts = lcu.sent("PUT", "/lol-item-sets/v1/item-sets/55/sets")
+    assert len(puts) == 1
+    titles = [s["title"] for s in puts[0][2]["itemSets"]]
+    assert titles == ["My build", "LAA: Ahri"]
+
+
+async def test_no_item_set_when_auto_items_off():
+    lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
+    await make_applier(lcu, build=BUILD_WITH_ITEMS, auto_items=False).apply(103, "middle")
+    assert lcu.sent("PUT", "/lol-item-sets/v1/item-sets/55/sets") == []
+
+
+async def test_no_item_set_when_build_has_no_items():
+    lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
+    await make_applier(lcu, build=BUILD).apply(103, "middle")  # BUILD.items is None
+    assert lcu.sent("GET", "/lol-summoner/v1/current-summoner") == []
+
+
+async def test_item_set_write_failure_is_silent():
+    from laa.lcu.connector import LCUError
+    lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
+    lcu.errors[("PUT", "/lol-item-sets/v1/item-sets/55/sets")] = LCUError("500")
+    await make_applier(lcu, build=BUILD_WITH_ITEMS, auto_runes=False).apply(103, "middle")

@@ -8,7 +8,7 @@ from laa import __version__
 from laa.core.engine import Engine
 from laa.lcu.catalog import ChampionCatalog
 from laa.lcu.connector import LCUConnector
-from laa.runes.applier import RuneApplier
+from laa.runes.applier import BuildApplier
 from laa.runes.provider import OPGGProvider
 from laa.ui.bridge import Bridge
 from laa.ui.store import ConfigStore
@@ -40,7 +40,7 @@ class LCUWorker(threading.Thread):
 
         connector = LCUConnector(on_event)
         catalog = ChampionCatalog(connector)
-        applier = RuneApplier(connector, OPGGProvider(), self._store.get, catalog.name)
+        applier = BuildApplier(connector, OPGGProvider(), self._store.get, catalog.name)
 
         def notify(text: str) -> None:
             self._bridge.status.emit(text)
