@@ -1,7 +1,38 @@
 from laa.config import Config
-from laa.runes.applier import RuneApplier
-from laa.runes.provider import Build
+from laa.runes.applier import RuneApplier, item_set_document, make_item_set
+from laa.runes.provider import Build, ItemBuild
 from tests.helpers import FakeLCU
+
+ITEMS = ItemBuild(starter_ids=[1054], core_ids=[3118, 4645, 3157],
+                  boots_ids=[3020], situational_ids=[3089, 3135])
+
+
+def test_make_item_set_shape():
+    s = make_item_set(103, "LAA: Ahri", ITEMS)
+    assert s["title"] == "LAA: Ahri"
+    assert s["associatedChampions"] == [103]
+    assert s["type"] == "custom"
+    assert [b["type"] for b in s["blocks"]] == ["Starters", "Core", "Boots", "Situational"]
+    assert s["blocks"][1]["items"] == [
+        {"id": "3118", "count": 1}, {"id": "4645", "count": 1}, {"id": "3157", "count": 1}]
+
+
+def test_make_item_set_omits_empty_blocks():
+    s = make_item_set(1, "LAA: Annie", ItemBuild([], [3020], [], []))
+    assert [b["type"] for b in s["blocks"]] == ["Core"]
+
+
+def test_item_set_document_keeps_user_sets_and_replaces_laa():
+    existing = {"itemSets": [
+        {"title": "My build", "blocks": []},
+        {"title": "LAA: Yasuo", "blocks": []},
+    ], "timestamp": 123}
+    doc = item_set_document(existing, 103, "LAA: Ahri", ITEMS)
+    titles = [s["title"] for s in doc["itemSets"]]
+    assert "My build" in titles
+    assert "LAA: Yasuo" not in titles
+    assert titles.count("LAA: Ahri") == 1
+    assert doc["timestamp"] == 123
 
 PAGES = ("GET", "/lol-perks/v1/pages")
 BUILD = Build(primary_style_id=8100, sub_style_id=8000,

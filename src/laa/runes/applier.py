@@ -6,11 +6,49 @@ from typing import Callable
 from laa.config import Config
 from laa.core.selection import ordered_spells
 from laa.lcu.connector import LCUError
-from laa.runes.provider import Build
+from laa.runes.provider import Build, ItemBuild
 
 log = logging.getLogger(__name__)
 
 PAGE_PREFIX = "LAA:"
+
+
+def _item_block(block_type: str, ids: list[int]) -> dict:
+    return {"type": block_type, "items": [{"id": str(i), "count": 1} for i in ids]}
+
+
+def make_item_set(champion_id: int, title: str, item_build: ItemBuild) -> dict:
+    blocks = []
+    if item_build.starter_ids:
+        blocks.append(_item_block("Starters", item_build.starter_ids))
+    if item_build.core_ids:
+        blocks.append(_item_block("Core", item_build.core_ids))
+    if item_build.boots_ids:
+        blocks.append(_item_block("Boots", item_build.boots_ids))
+    if item_build.situational_ids:
+        blocks.append(_item_block("Situational", item_build.situational_ids))
+    return {
+        "title": title,
+        "type": "custom",
+        "map": "any",
+        "mode": "any",
+        "sortrank": 0,
+        "startedFrom": "blank",
+        "associatedChampions": [champion_id],
+        "associatedMaps": [],
+        "preferredItemSlots": [],
+        "blocks": blocks,
+    }
+
+
+def item_set_document(existing_doc: dict, champion_id: int, title: str,
+                      item_build: ItemBuild) -> dict:
+    doc = dict(existing_doc) if isinstance(existing_doc, dict) else {}
+    kept = [s for s in (doc.get("itemSets") or [])
+            if not str(s.get("title", "")).startswith(PAGE_PREFIX)]
+    kept.append(make_item_set(champion_id, title, item_build))
+    doc["itemSets"] = kept
+    return doc
 
 
 class RuneApplier:
