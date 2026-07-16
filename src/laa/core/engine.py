@@ -5,6 +5,7 @@ from typing import Callable
 
 from laa.config import Config
 from laa.core.champ_select import ChampSelectAutomation
+from laa.core.end_of_game import EndOfGameAutomation
 from laa.core.ready_check import ReadyCheckAutomation
 from laa.lcu import events
 
@@ -28,12 +29,17 @@ class Engine:
     """Routes LCU events to automations; owns phase tracking and resets."""
 
     def __init__(self, lcu, get_config: Callable[[], Config], catalog, rune_applier,
-                 notify: Callable[[str], None] | None = None) -> None:
+                 notify: Callable[[str], None] | None = None, scout=None,
+                 on_multisearch: Callable[[str], None] | None = None) -> None:
         self._lcu = lcu
         self._catalog = catalog
         self._notify = notify or (lambda text: None)
         self._ready = ReadyCheckAutomation(lcu, get_config)
-        self._champ = ChampSelectAutomation(lcu, get_config, on_locked=rune_applier.apply)
+        self._champ = ChampSelectAutomation(lcu, get_config, on_locked=rune_applier.apply,
+                                            on_planning=rune_applier.suggest_counters)
+        self._endgame = EndOfGameAutomation(lcu, get_config)
+        self._scout = scout
+        self._on_multisearch = on_multisearch or (lambda url: None)
         self.phase = ""
 
     async def on_event(self, event: events.LCUEvent) -> None:
@@ -56,23 +62,32 @@ class Engine:
                     phase = None
                 self._notify("Connected")
                 if isinstance(phase, str):
-                    self._set_phase(phase)
+                    await self._set_phase(phase)
             case events.Disconnected():
                 self._notify("Waiting for League client")
             case events.GameflowPhase(phase=phase):
-                self._set_phase(phase)
+                await self._set_phase(phase)
             case events.ReadyCheckUpdate() as update:
                 await self._ready.on_update(update)
             case events.ChampSelectUpdate(session=session):
+                if self._scout is not None:
+                    url = await self._scout.maybe_auto_url(session)
+                    if url:
+                        self._on_multisearch(url)
                 await self._champ.on_session(session)
 
-    def _set_phase(self, phase: str) -> None:
+    async def _set_phase(self, phase: str) -> None:
         if phase == self.phase:
             return
         if phase != "ReadyCheck":
             self._ready.reset()
         if phase != "ChampSelect":
             self._champ.reset()
+            if self._scout is not None:
+                self._scout.reset()
+        if phase not in ("WaitingForStats", "PreEndOfGame", "EndOfGame"):
+            self._endgame.reset()
         self.phase = phase
         log.info("Gameflow phase: %s", phase)
         self._notify(PHASE_LABELS.get(phase, phase))
+        await self._endgame.on_phase(phase)

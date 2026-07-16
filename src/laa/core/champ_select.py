@@ -15,10 +15,12 @@ OnLocked = Callable[[int, str], Awaitable[None]]
 
 class ChampSelectAutomation:
     def __init__(self, lcu, get_config: Callable[[], Config],
-                 on_locked: OnLocked | None = None) -> None:
+                 on_locked: OnLocked | None = None,
+                 on_planning: OnLocked | None = None) -> None:
         self._lcu = lcu
         self._get_config = get_config
         self._on_locked = on_locked
+        self._on_planning = on_planning  # (intended champion_id, assigned position)
         self.reset()
 
     def reset(self) -> None:
@@ -33,6 +35,7 @@ class ChampSelectAutomation:
         self._pickable: set[int] | None = None
         self._bannable: set[int] | None = None
         self._rejected_bans: set[int] = set()  # ban targets the client refused this session
+        self._planning_notified = False
         self._logged_once: set[str] = set()  # one-shot diagnostic log keys per session
 
     def _log_once(self, key: str, message: str, *args) -> None:
@@ -56,6 +59,11 @@ class ChampSelectAutomation:
             await self._apply_spells(cfg)
         if cfg.lobby_message and not self._chat_done:
             await self._send_chat(cfg.lobby_message)
+        if ((session.get("timer") or {}).get("phase") == "PLANNING"
+                and not self._planning_notified and self._on_planning is not None
+                and cfg.pick_ids):
+            self._planning_notified = True
+            await self._on_planning(cfg.pick_ids[0], selection.assigned_position(session))
         await self._handle_actions(cfg, session)
         await self._notify_lock(session)
         self._arm_safety_lock(cfg, session)

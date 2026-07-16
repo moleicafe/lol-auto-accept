@@ -18,6 +18,11 @@ Run against the real League client (a practice-tool or draft lobby). Check off e
       overwrites the same page (no page-slot leak)
 - [ ] On lock-in: item set "LAA: <Champion>" appears for that champion in the shop with
       sensible items (starters/core/boots/situational); personal item sets are untouched
+- [ ] Item set core block title shows the meta skill order (e.g. "Core — max Q>W>E (start ...)")
+- [ ] During planning phase: activity log shows "Counters to <champ> worth banning: ..."
+- [ ] Scout lobby button opens an op.gg multisearch with your teammates during champ select
+- [ ] After game: a teammate is auto-honored (log line "Auto-honored teammate ...")
+- [ ] With auto play-again enabled: back in lobby after game end without clicking
 - [ ] Kill the League client mid-lobby -> app returns to "Waiting for League client",
       reconnects when client restarts
 - [ ] Close button hides to tray (hint shown once); tray Quit exits; second app copy

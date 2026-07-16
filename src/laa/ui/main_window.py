@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QCompleter, QFormLayout, QGroupBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QMainWindow,
                                QPlainTextEdit, QPushButton, QSlider, QSystemTrayIcon,
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._store = store
         self.tray: QSystemTrayIcon | None = None
+        self.request_scout = None  # set by __main__ to the worker's thread-safe request
         self.setWindowTitle(f"League Auto Accept v{__version__}")
         self.setWindowIcon(logo_icon())
         self.resize(520, 640)
@@ -150,6 +152,7 @@ class MainWindow(QMainWindow):
         bridge.log_line.connect(self._log.appendPlainText)
         bridge.catalog_ready.connect(self._on_catalog)
         bridge.update_available.connect(self._on_update_available)
+        bridge.multisearch_ready.connect(self._open_multisearch)
 
     def _queue_tab(self, cfg) -> QWidget:
         w = QWidget()
@@ -222,6 +225,19 @@ class MainWindow(QMainWindow):
         msg.setPlaceholderText("Lobby chat message (empty = off)")
         msg.editingFinished.connect(lambda: self._store.update(lobby_message=msg.text()))
 
+        self._scout_btn = QPushButton("Scout lobby")
+        self._scout_btn.setToolTip("Open an op.gg multisearch for your teammates "
+                                   "(works during champ select)")
+        self._scout_btn.clicked.connect(self._on_scout_clicked)
+        self._multisearch_auto = QCheckBox("Auto-open on champ select")
+        self._multisearch_auto.setChecked(cfg.multisearch_auto)
+        self._multisearch_auto.toggled.connect(
+            lambda on: self._store.update(multisearch_auto=on))
+        scout_row = QHBoxLayout()
+        scout_row.addWidget(self._scout_btn)
+        scout_row.addWidget(self._multisearch_auto)
+        scout_row.addStretch(1)
+
         lay.addWidget(self._picks, 1)
         lay.addWidget(self._bans, 1)
         lay.addWidget(instalock)
@@ -229,7 +245,18 @@ class MainWindow(QMainWindow):
         lay.addLayout(safety_row)
         lay.addLayout(srow)
         lay.addWidget(msg)
+        lay.addLayout(scout_row)
         return w
+
+    def _on_scout_clicked(self) -> None:
+        if self.request_scout is not None:
+            self.request_scout()
+        else:
+            log.info("Scout lobby: not wired yet")
+
+    def _open_multisearch(self, url: str) -> None:
+        log.info("Opening lobby multisearch")
+        QDesktopServices.openUrl(QUrl(url))
 
     def _spell_combo(self, current: int, field_name: str) -> QComboBox:
         combo = QComboBox()

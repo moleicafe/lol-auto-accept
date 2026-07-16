@@ -149,3 +149,29 @@ def test_auto_items_checkbox_writes_config(qtbot, tmp_path):
     assert win._auto_items.isChecked()  # default on
     win._auto_items.setChecked(False)
     assert store.get().auto_items is False
+
+
+def test_scout_controls_and_wiring(qtbot, tmp_path):
+    store = make_store(tmp_path)
+    win = MainWindow(store, Bridge())
+    qtbot.addWidget(win)
+    assert win._scout_btn.text() == "Scout lobby"
+    assert not win._multisearch_auto.isChecked()  # default off
+    win._multisearch_auto.setChecked(True)
+    assert store.get().multisearch_auto is True
+    calls = []
+    win.request_scout = lambda: calls.append(1)
+    win._scout_btn.click()
+    assert calls == [1]
+
+
+def test_multisearch_ready_opens_url(qtbot, tmp_path, monkeypatch):
+    import laa.ui.main_window as mw
+    opened = []
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl",
+                        staticmethod(lambda u: opened.append(u.toString())))
+    bridge = Bridge()
+    win = MainWindow(make_store(tmp_path), bridge)
+    qtbot.addWidget(win)
+    bridge.multisearch_ready.emit("https://op.gg/multisearch/na?summoners=X%23Y")
+    assert opened == ["https://op.gg/multisearch/na?summoners=X%23Y"]

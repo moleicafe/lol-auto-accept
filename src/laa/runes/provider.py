@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -66,6 +67,42 @@ class Build:
     perk_ids: list[int]           # 6 runes (4 primary + 2 secondary) + 3 stat shards, LCU order
     spell_ids: tuple[int, int]
     items: "ItemBuild | None" = field(default=None, compare=False)
+    skill_max: list[str] = field(default_factory=list, compare=False)    # e.g. ["Q","W","E"]
+    skill_start: list[str] = field(default_factory=list, compare=False)  # first 4 levels
+    counter_ids: list[tuple[int, float]] = field(default_factory=list, compare=False)
+
+
+COUNTER_MIN_PLAY = 20  # ignore low-sample counter matchups
+COUNTER_TOP_N = 3
+CACHE_TTL_S = 600.0  # provider fetch-cache lifetime (covers one champ select)
+
+
+def _parse_counters(data: dict) -> list[tuple[int, float]]:
+    try:
+        entries = [e for e in (data.get("counters") or [])
+                   if e.get("play", 0) >= COUNTER_MIN_PLAY]
+        rated = [(int(e["champion_id"]), e.get("win", 0) / e["play"]) for e in entries]
+        rated.sort(key=lambda t: t[1], reverse=True)
+        return rated[:COUNTER_TOP_N]
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return []
+
+
+def _parse_skill_order(data: dict) -> tuple[list[str], list[str]]:
+    try:
+        masteries = data.get("skill_masteries") or []
+        skills = data.get("skills") or []
+        skill_max = []
+        if masteries:
+            best = max(masteries, key=lambda e: e.get("play", 0))
+            skill_max = [str(s) for s in best.get("ids", [])]
+        skill_start = []
+        if skills:
+            best = max(skills, key=lambda e: e.get("play", 0))
+            skill_start = [str(s) for s in best.get("order", [])][:4]
+        return skill_max, skill_start
+    except (KeyError, TypeError, ValueError):
+        return [], []
 
 
 def parse_champion(data: dict) -> Build | None:
@@ -84,12 +121,16 @@ def parse_champion(data: dict) -> Build | None:
             items = parse_item_build(data)
         except (KeyError, IndexError, TypeError, ValueError):
             items = None
+        skill_max, skill_start = _parse_skill_order(data)
         return Build(
             primary_style_id=int(top["primary_page_id"]),
             sub_style_id=int(top["secondary_page_id"]),
             perk_ids=perk_ids,
             spell_ids=spell_ids,
             items=items,
+            skill_max=skill_max,
+            skill_start=skill_start,
+            counter_ids=_parse_counters(data),
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None
@@ -99,12 +140,23 @@ class OPGGProvider:
     def __init__(self, http: httpx.AsyncClient | None = None, region: str = "global") -> None:
         self._http = http or httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT})
         self._region = region
+        # Size-1 cache: the counter-suggestion fetch at champ-select start and the
+        # rune/item fetch at lock-in are usually the same champion+position. TTL
+        # keeps a long-running tray app from serving stale meta across games.
+        self._last: tuple[tuple[int, str], dict, float] | None = None
 
     async def _fetch(self, champion_id: int, position: str) -> dict:
+        key = (champion_id, position)
+        now = time.monotonic()
+        if (self._last is not None and self._last[0] == key
+                and now - self._last[2] < CACHE_TTL_S):
+            return self._last[1]
         url = OPGG_URL.format(region=self._region, champion_id=champion_id, position=position)
         resp = await self._http.get(url)
         resp.raise_for_status()
-        return resp.json()["data"]
+        data = resp.json()["data"]
+        self._last = (key, data, now)
+        return data
 
     async def _primary_position(self, champion_id: int) -> str:
         data = await self._fetch(champion_id, DEFAULT_POSITION)

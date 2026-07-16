@@ -139,3 +139,45 @@ async def test_item_set_write_failure_is_silent():
     lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
     lcu.errors[("PUT", "/lol-item-sets/v1/item-sets/55/sets")] = LCUError("500")
     await make_applier(lcu, build=BUILD_WITH_ITEMS, auto_runes=False).apply(103, "middle")
+
+
+def test_core_block_title_formats():
+    from laa.runes.applier import core_block_title
+    assert core_block_title(["Q", "W", "E"], ["W", "Q", "E", "Q"]) == \
+        "Core — max Q>W>E (start W-Q-E-Q)"
+    assert core_block_title(["Q", "W", "E"], []) == "Core — max Q>W>E"
+    assert core_block_title([], []) == "Core"
+
+
+async def test_item_set_core_title_includes_skill_order():
+    build = Build(primary_style_id=8100, sub_style_id=8000,
+                  perk_ids=BUILD.perk_ids, spell_ids=(14, 4), items=ITEMS)
+    object.__setattr__(build, "skill_max", ["Q", "W", "E"])
+    object.__setattr__(build, "skill_start", ["W", "Q", "E", "Q"])
+    lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
+    await make_applier(lcu, build=build, auto_runes=False).apply(103, "middle")
+    doc = lcu.sent("PUT", "/lol-item-sets/v1/item-sets/55/sets")[0][2]
+    core = next(b for b in doc["itemSets"][0]["blocks"] if b["type"].startswith("Core"))
+    assert core["type"] == "Core — max Q>W>E (start W-Q-E-Q)"
+
+
+async def test_suggest_counters_logs_names_and_percentages(caplog):
+    import logging as _logging
+    build = Build(primary_style_id=8100, sub_style_id=8000,
+                  perk_ids=BUILD.perk_ids, spell_ids=(14, 4),
+                  counter_ids=[(112, 0.569), (238, 0.55)])
+    names = {112: "Viktor", 238: "Zed", 103: "Ahri"}
+    applier = BuildApplier(FakeLCU(), StubProvider(build),
+                           lambda: Config(), lambda cid: names.get(cid, f"#{cid}"))
+    with caplog.at_level(_logging.INFO):
+        await applier.suggest_counters(103, "middle")
+    joined = " ".join(r.message for r in caplog.records)
+    assert "Viktor (57%)" in joined and "Zed (55%)" in joined and "Ahri" in joined
+
+
+async def test_suggest_counters_silent_when_no_data(caplog):
+    import logging as _logging
+    applier = BuildApplier(FakeLCU(), StubProvider(None),
+                           lambda: Config(), lambda cid: "Ahri")
+    with caplog.at_level(_logging.WARNING):
+        await applier.suggest_counters(103, "middle")  # must not raise

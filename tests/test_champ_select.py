@@ -286,3 +286,29 @@ async def test_ban_still_skips_champs_already_banned_in_session():
     await auto.on_session(s)
     assert lcu.sent("PATCH", "/lol-champ-select/v1/session/actions/5")[-1][2] == {
         "championId": 238, "completed": True}
+
+
+async def test_on_planning_fires_once_with_top_pick_and_role():
+    calls = []
+
+    async def on_planning(cid, role):
+        calls.append((cid, role))
+
+    auto = ChampSelectAutomation(lcu_with(), lambda: cfg(), on_planning=on_planning)
+    s = make_session(position="middle",
+                     actions=[[action(5, 0, "ban", in_progress=True)]], phase="PLANNING")
+    await auto.on_session(s)
+    await auto.on_session(s)
+    assert calls == [(103, "middle")]  # top of pick list, once
+
+
+async def test_on_planning_not_fired_when_pick_list_empty():
+    calls = []
+
+    async def on_planning(cid, role):
+        calls.append((cid, role))
+
+    auto = ChampSelectAutomation(lcu_with(), lambda: cfg(pick_ids=[]),
+                                 on_planning=on_planning)
+    await auto.on_session(make_session(phase="PLANNING"))
+    assert calls == []

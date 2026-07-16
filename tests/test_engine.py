@@ -10,9 +10,13 @@ CATALOG = ("GET", "/lol-game-data/assets/v1/champion-summary.json")
 class StubApplier:
     def __init__(self):
         self.applied = []
+        self.suggested = []
 
     async def apply(self, cid, role):
         self.applied.append((cid, role))
+
+    async def suggest_counters(self, cid, role):
+        self.suggested.append((cid, role))
 
 
 class StubCatalog:
@@ -109,3 +113,28 @@ async def test_none_phase_notifies_friendly_label_not_literal_none():
     await eng.on_event(events.GameflowPhase(phase="None"))
     assert eng.phase == "None"          # raw phase preserved for reset logic
     assert statuses[-1] == "In client"  # but the notified status is friendly
+
+
+async def test_champ_select_feeds_scout_and_emits_auto_url():
+    class StubScout:
+        def __init__(self):
+            self.sessions = []
+
+        async def maybe_auto_url(self, session):
+            self.sessions.append(session)
+            return "https://op.gg/multisearch/x" if len(self.sessions) == 1 else None
+
+        def reset(self):
+            pass
+
+    from laa.core.engine import Engine
+    urls = []
+    scout = StubScout()
+    lcu = FakeLCU({PHASE: "None"})
+    eng = Engine(lcu, lambda: Config(), StubCatalog(), StubApplier(),
+                 notify=lambda s: None, scout=scout, on_multisearch=urls.append)
+    s = make_session()
+    await eng.on_event(events.ChampSelectUpdate(session=s))
+    await eng.on_event(events.ChampSelectUpdate(session=s))
+    assert len(scout.sessions) == 2
+    assert urls == ["https://op.gg/multisearch/x"]
