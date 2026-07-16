@@ -205,3 +205,23 @@ async def test_provider_caches_last_fetch():
     assert len(hits) == 1
     await provider.get_build(103, "top")      # different position -> refetch
     assert len(hits) == 2
+
+
+async def test_provider_cache_expires_after_ttl(monkeypatch):
+    import laa.runes.provider as prov
+    hits = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hits.append(1)
+        return httpx.Response(200, json={"data": make_data()})
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(prov.time, "monotonic", lambda: clock["t"])
+    provider = OPGGProvider(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    await provider.get_build(103, "middle")
+    clock["t"] += prov.CACHE_TTL_S - 1
+    await provider.get_build(103, "middle")      # still fresh
+    assert len(hits) == 1
+    clock["t"] += 2                              # now past TTL
+    await provider.get_build(103, "middle")
+    assert len(hits) == 2

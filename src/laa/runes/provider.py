@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 
 import httpx
@@ -73,6 +74,7 @@ class Build:
 
 COUNTER_MIN_PLAY = 20  # ignore low-sample counter matchups
 COUNTER_TOP_N = 3
+CACHE_TTL_S = 600.0  # provider fetch-cache lifetime (covers one champ select)
 
 
 def _parse_counters(data: dict) -> list[tuple[int, float]]:
@@ -139,18 +141,21 @@ class OPGGProvider:
         self._http = http or httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT})
         self._region = region
         # Size-1 cache: the counter-suggestion fetch at champ-select start and the
-        # rune/item fetch at lock-in are usually the same champion+position.
-        self._last: tuple[tuple[int, str], dict] | None = None
+        # rune/item fetch at lock-in are usually the same champion+position. TTL
+        # keeps a long-running tray app from serving stale meta across games.
+        self._last: tuple[tuple[int, str], dict, float] | None = None
 
     async def _fetch(self, champion_id: int, position: str) -> dict:
         key = (champion_id, position)
-        if self._last is not None and self._last[0] == key:
+        now = time.monotonic()
+        if (self._last is not None and self._last[0] == key
+                and now - self._last[2] < CACHE_TTL_S):
             return self._last[1]
         url = OPGG_URL.format(region=self._region, champion_id=champion_id, position=position)
         resp = await self._http.get(url)
         resp.raise_for_status()
         data = resp.json()["data"]
-        self._last = (key, data)
+        self._last = (key, data, now)
         return data
 
     async def _primary_position(self, champion_id: int) -> str:
