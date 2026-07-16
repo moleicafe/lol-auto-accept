@@ -66,6 +66,25 @@ class Build:
     perk_ids: list[int]           # 6 runes (4 primary + 2 secondary) + 3 stat shards, LCU order
     spell_ids: tuple[int, int]
     items: "ItemBuild | None" = field(default=None, compare=False)
+    skill_max: list[str] = field(default_factory=list, compare=False)    # e.g. ["Q","W","E"]
+    skill_start: list[str] = field(default_factory=list, compare=False)  # first 4 levels
+
+
+def _parse_skill_order(data: dict) -> tuple[list[str], list[str]]:
+    try:
+        masteries = data.get("skill_masteries") or []
+        skills = data.get("skills") or []
+        skill_max = []
+        if masteries:
+            best = max(masteries, key=lambda e: e.get("play", 0))
+            skill_max = [str(s) for s in best.get("ids", [])]
+        skill_start = []
+        if skills:
+            best = max(skills, key=lambda e: e.get("play", 0))
+            skill_start = [str(s) for s in best.get("order", [])][:4]
+        return skill_max, skill_start
+    except (KeyError, TypeError, ValueError):
+        return [], []
 
 
 def parse_champion(data: dict) -> Build | None:
@@ -84,12 +103,15 @@ def parse_champion(data: dict) -> Build | None:
             items = parse_item_build(data)
         except (KeyError, IndexError, TypeError, ValueError):
             items = None
+        skill_max, skill_start = _parse_skill_order(data)
         return Build(
             primary_style_id=int(top["primary_page_id"]),
             sub_style_id=int(top["secondary_page_id"]),
             perk_ids=perk_ids,
             spell_ids=spell_ids,
             items=items,
+            skill_max=skill_max,
+            skill_start=skill_start,
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None

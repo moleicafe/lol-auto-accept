@@ -139,3 +139,23 @@ async def test_item_set_write_failure_is_silent():
     lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
     lcu.errors[("PUT", "/lol-item-sets/v1/item-sets/55/sets")] = LCUError("500")
     await make_applier(lcu, build=BUILD_WITH_ITEMS, auto_runes=False).apply(103, "middle")
+
+
+def test_core_block_title_formats():
+    from laa.runes.applier import core_block_title
+    assert core_block_title(["Q", "W", "E"], ["W", "Q", "E", "Q"]) == \
+        "Core — max Q>W>E (start W-Q-E-Q)"
+    assert core_block_title(["Q", "W", "E"], []) == "Core — max Q>W>E"
+    assert core_block_title([], []) == "Core"
+
+
+async def test_item_set_core_title_includes_skill_order():
+    build = Build(primary_style_id=8100, sub_style_id=8000,
+                  perk_ids=BUILD.perk_ids, spell_ids=(14, 4), items=ITEMS)
+    object.__setattr__(build, "skill_max", ["Q", "W", "E"])
+    object.__setattr__(build, "skill_start", ["W", "Q", "E", "Q"])
+    lcu = FakeLCU({PAGES: [], SUMMONER: {"summonerId": 55}, SETS: {"itemSets": []}})
+    await make_applier(lcu, build=build, auto_runes=False).apply(103, "middle")
+    doc = lcu.sent("PUT", "/lol-item-sets/v1/item-sets/55/sets")[0][2]
+    core = next(b for b in doc["itemSets"][0]["blocks"] if b["type"].startswith("Core"))
+    assert core["type"] == "Core — max Q>W>E (start W-Q-E-Q)"

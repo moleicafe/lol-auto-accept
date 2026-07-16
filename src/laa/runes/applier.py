@@ -17,12 +17,22 @@ def _item_block(block_type: str, ids: list[int]) -> dict:
     return {"type": block_type, "items": [{"id": str(i), "count": 1} for i in ids]}
 
 
-def make_item_set(champion_id: int, title: str, item_build: ItemBuild) -> dict:
+def core_block_title(skill_max: list[str], skill_start: list[str]) -> str:
+    title = "Core"
+    if skill_max:
+        title += f" — max {'>'.join(skill_max)}"
+        if skill_start:
+            title += f" (start {'-'.join(skill_start)})"
+    return title
+
+
+def make_item_set(champion_id: int, title: str, item_build: ItemBuild,
+                  core_title: str = "Core") -> dict:
     blocks = []
     if item_build.starter_ids:
         blocks.append(_item_block("Starters", item_build.starter_ids))
     if item_build.core_ids:
-        blocks.append(_item_block("Core", item_build.core_ids))
+        blocks.append(_item_block(core_title, item_build.core_ids))
     if item_build.boots_ids:
         blocks.append(_item_block("Boots", item_build.boots_ids))
     if item_build.situational_ids:
@@ -42,11 +52,11 @@ def make_item_set(champion_id: int, title: str, item_build: ItemBuild) -> dict:
 
 
 def item_set_document(existing_doc: dict, champion_id: int, title: str,
-                      item_build: ItemBuild) -> dict:
+                      item_build: ItemBuild, core_title: str = "Core") -> dict:
     doc = dict(existing_doc) if isinstance(existing_doc, dict) else {}
     kept = [s for s in (doc.get("itemSets") or [])
             if not str(s.get("title", "")).startswith(PAGE_PREFIX)]
-    kept.append(make_item_set(champion_id, title, item_build))
+    kept.append(make_item_set(champion_id, title, item_build, core_title))
     doc["itemSets"] = kept
     return doc
 
@@ -122,8 +132,9 @@ class BuildApplier:
                 # Unexpected shape — don't risk overwriting the user's own sets.
                 log.warning("Item set doc had unexpected shape; skipping")
                 return
+            core_title = core_block_title(build.skill_max, build.skill_start)
             await self._lcu.put(path, item_set_document(document, champion_id, title,
-                                                        build.items))
+                                                        build.items, core_title))
             log.info("Applied item set %r", title)
         except (LCUError, KeyError, TypeError) as exc:
             log.warning("Applying item set failed: %s", exc)

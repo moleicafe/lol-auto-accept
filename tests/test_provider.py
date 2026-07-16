@@ -122,3 +122,41 @@ async def test_get_build_returns_none_on_http_error():
     provider = OPGGProvider(http=httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(500))))
     assert await provider.get_build(103, "middle") is None
+
+
+def _skills_payload():
+    return {
+        "skill_masteries": [
+            {"ids": ["Q", "E", "W"], "play": 50, "win": 20},
+            {"ids": ["Q", "W", "E"], "play": 900, "win": 500},   # highest play
+        ],
+        "skills": [
+            {"order": ["W", "Q", "E", "Q", "Q", "R"], "play": 800, "win": 400},
+            {"order": ["Q", "W", "E", "Q"], "play": 10, "win": 5},
+        ],
+    }
+
+
+def test_parse_champion_extracts_skill_order():
+    data = {
+        "runes": [{"primary_page_id": 8100, "secondary_page_id": 8200,
+                   "primary_rune_ids": [1, 2, 3, 4], "secondary_rune_ids": [5, 6],
+                   "stat_mod_ids": [7, 8, 9], "play": 5}],
+        "summoner_spells": [{"ids": [4, 14], "play": 5}],
+        **_skills_payload(),
+    }
+    build = parse_champion(data)
+    assert build.skill_max == ["Q", "W", "E"]          # highest-play mastery
+    assert build.skill_start == ["W", "Q", "E", "Q"]   # first 4 of highest-play order
+
+
+def test_skill_order_absent_gives_empty_lists():
+    data = {
+        "runes": [{"primary_page_id": 8100, "secondary_page_id": 8200,
+                   "primary_rune_ids": [1, 2, 3, 4], "secondary_rune_ids": [5, 6],
+                   "stat_mod_ids": [7, 8, 9], "play": 5}],
+        "summoner_spells": [{"ids": [4, 14], "play": 5}],
+    }
+    build = parse_champion(data)
+    assert build.skill_max == []
+    assert build.skill_start == []
