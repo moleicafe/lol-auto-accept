@@ -68,6 +68,22 @@ class Build:
     items: "ItemBuild | None" = field(default=None, compare=False)
     skill_max: list[str] = field(default_factory=list, compare=False)    # e.g. ["Q","W","E"]
     skill_start: list[str] = field(default_factory=list, compare=False)  # first 4 levels
+    counter_ids: list[tuple[int, float]] = field(default_factory=list, compare=False)
+
+
+COUNTER_MIN_PLAY = 20  # ignore low-sample counter matchups
+COUNTER_TOP_N = 3
+
+
+def _parse_counters(data: dict) -> list[tuple[int, float]]:
+    try:
+        entries = [e for e in (data.get("counters") or [])
+                   if e.get("play", 0) >= COUNTER_MIN_PLAY]
+        rated = [(int(e["champion_id"]), e.get("win", 0) / e["play"]) for e in entries]
+        rated.sort(key=lambda t: t[1], reverse=True)
+        return rated[:COUNTER_TOP_N]
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return []
 
 
 def _parse_skill_order(data: dict) -> tuple[list[str], list[str]]:
@@ -112,6 +128,7 @@ def parse_champion(data: dict) -> Build | None:
             items=items,
             skill_max=skill_max,
             skill_start=skill_start,
+            counter_ids=_parse_counters(data),
         )
     except (KeyError, IndexError, TypeError, ValueError):
         return None
@@ -121,12 +138,20 @@ class OPGGProvider:
     def __init__(self, http: httpx.AsyncClient | None = None, region: str = "global") -> None:
         self._http = http or httpx.AsyncClient(timeout=5.0, headers={"User-Agent": USER_AGENT})
         self._region = region
+        # Size-1 cache: the counter-suggestion fetch at champ-select start and the
+        # rune/item fetch at lock-in are usually the same champion+position.
+        self._last: tuple[tuple[int, str], dict] | None = None
 
     async def _fetch(self, champion_id: int, position: str) -> dict:
+        key = (champion_id, position)
+        if self._last is not None and self._last[0] == key:
+            return self._last[1]
         url = OPGG_URL.format(region=self._region, champion_id=champion_id, position=position)
         resp = await self._http.get(url)
         resp.raise_for_status()
-        return resp.json()["data"]
+        data = resp.json()["data"]
+        self._last = (key, data)
+        return data
 
     async def _primary_position(self, champion_id: int) -> str:
         data = await self._fetch(champion_id, DEFAULT_POSITION)
