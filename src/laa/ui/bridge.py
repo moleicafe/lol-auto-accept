@@ -12,6 +12,7 @@ class Bridge(QObject):
     log_line = Signal(str)
     catalog_ready = Signal(object)  # dict[int, str]
     update_available = Signal(str, str)  # version, release url
+    multisearch_ready = Signal(str)  # op.gg multisearch url to open
 
 
 class QtLogHandler(logging.Handler):

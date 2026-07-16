@@ -6,6 +6,7 @@ import threading
 
 from laa import __version__
 from laa.core.engine import Engine
+from laa.core.scout import LobbyScout
 from laa.lcu.catalog import ChampionCatalog
 from laa.lcu.connector import LCUConnector
 from laa.runes.applier import BuildApplier
@@ -24,6 +25,28 @@ class LCUWorker(threading.Thread):
         super().__init__(daemon=True, name="lcu-worker")
         self._store = store
         self._bridge = bridge
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._scout: LobbyScout | None = None
+
+    def request_multisearch(self) -> None:
+        """Thread-safe: called from the Qt thread; result arrives via the bridge."""
+        loop, scout = self._loop, self._scout
+        if loop is None or scout is None:
+            log.info("Scout lobby: worker not ready")
+            return
+
+        def done(fut) -> None:
+            try:
+                url = fut.result()
+            except Exception:
+                log.exception("Scout lobby failed")
+                return
+            if url:
+                self._bridge.multisearch_ready.emit(url)
+            else:
+                log.info("Scout lobby: no lobby names available yet")
+
+        asyncio.run_coroutine_threadsafe(scout.build_url(), loop).add_done_callback(done)
 
     def run(self) -> None:
         try:
@@ -33,6 +56,7 @@ class LCUWorker(threading.Thread):
             self._bridge.status.emit("Stopped - please restart the app")
 
     async def _main(self) -> None:
+        self._loop = asyncio.get_running_loop()
         engine_ref: list[Engine] = []
 
         async def on_event(event) -> None:
@@ -41,13 +65,16 @@ class LCUWorker(threading.Thread):
         connector = LCUConnector(on_event)
         catalog = ChampionCatalog(connector)
         applier = BuildApplier(connector, OPGGProvider(), self._store.get, catalog.name)
+        self._scout = LobbyScout(connector, self._store.get)
 
         def notify(text: str) -> None:
             self._bridge.status.emit(text)
             if text == "Connected":
                 self._bridge.catalog_ready.emit(catalog.all())
 
-        engine_ref.append(Engine(connector, self._store.get, catalog, applier, notify))
+        engine_ref.append(Engine(connector, self._store.get, catalog, applier, notify,
+                                 scout=self._scout,
+                                 on_multisearch=self._bridge.multisearch_ready.emit))
 
         async def heartbeat() -> None:
             # Proves both the worker loop and the log sinks are alive; if

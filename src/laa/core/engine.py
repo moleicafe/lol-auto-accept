@@ -29,7 +29,8 @@ class Engine:
     """Routes LCU events to automations; owns phase tracking and resets."""
 
     def __init__(self, lcu, get_config: Callable[[], Config], catalog, rune_applier,
-                 notify: Callable[[str], None] | None = None) -> None:
+                 notify: Callable[[str], None] | None = None, scout=None,
+                 on_multisearch: Callable[[str], None] | None = None) -> None:
         self._lcu = lcu
         self._catalog = catalog
         self._notify = notify or (lambda text: None)
@@ -37,6 +38,8 @@ class Engine:
         self._champ = ChampSelectAutomation(lcu, get_config, on_locked=rune_applier.apply,
                                             on_planning=rune_applier.suggest_counters)
         self._endgame = EndOfGameAutomation(lcu, get_config)
+        self._scout = scout
+        self._on_multisearch = on_multisearch or (lambda url: None)
         self.phase = ""
 
     async def on_event(self, event: events.LCUEvent) -> None:
@@ -67,6 +70,10 @@ class Engine:
             case events.ReadyCheckUpdate() as update:
                 await self._ready.on_update(update)
             case events.ChampSelectUpdate(session=session):
+                if self._scout is not None:
+                    url = await self._scout.maybe_auto_url(session)
+                    if url:
+                        self._on_multisearch(url)
                 await self._champ.on_session(session)
 
     async def _set_phase(self, phase: str) -> None:
@@ -76,6 +83,8 @@ class Engine:
             self._ready.reset()
         if phase != "ChampSelect":
             self._champ.reset()
+            if self._scout is not None:
+                self._scout.reset()
         if phase not in ("WaitingForStats", "PreEndOfGame", "EndOfGame"):
             self._endgame.reset()
         self.phase = phase
