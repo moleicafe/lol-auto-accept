@@ -159,3 +159,25 @@ async def test_item_set_core_title_includes_skill_order():
     doc = lcu.sent("PUT", "/lol-item-sets/v1/item-sets/55/sets")[0][2]
     core = next(b for b in doc["itemSets"][0]["blocks"] if b["type"].startswith("Core"))
     assert core["type"] == "Core — max Q>W>E (start W-Q-E-Q)"
+
+
+async def test_suggest_counters_logs_names_and_percentages(caplog):
+    import logging as _logging
+    build = Build(primary_style_id=8100, sub_style_id=8000,
+                  perk_ids=BUILD.perk_ids, spell_ids=(14, 4),
+                  counter_ids=[(112, 0.569), (238, 0.55)])
+    names = {112: "Viktor", 238: "Zed", 103: "Ahri"}
+    applier = BuildApplier(FakeLCU(), StubProvider(build),
+                           lambda: Config(), lambda cid: names.get(cid, f"#{cid}"))
+    with caplog.at_level(_logging.INFO):
+        await applier.suggest_counters(103, "middle")
+    joined = " ".join(r.message for r in caplog.records)
+    assert "Viktor (57%)" in joined and "Zed (55%)" in joined and "Ahri" in joined
+
+
+async def test_suggest_counters_silent_when_no_data(caplog):
+    import logging as _logging
+    applier = BuildApplier(FakeLCU(), StubProvider(None),
+                           lambda: Config(), lambda cid: "Ahri")
+    with caplog.at_level(_logging.WARNING):
+        await applier.suggest_counters(103, "middle")  # must not raise

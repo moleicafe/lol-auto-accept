@@ -34,7 +34,8 @@ class Engine:
         self._catalog = catalog
         self._notify = notify or (lambda text: None)
         self._ready = ReadyCheckAutomation(lcu, get_config)
-        self._champ = ChampSelectAutomation(lcu, get_config, on_locked=rune_applier.apply)
+        self._champ = ChampSelectAutomation(lcu, get_config, on_locked=rune_applier.apply,
+                                            on_planning=rune_applier.suggest_counters)
         self._endgame = EndOfGameAutomation(lcu, get_config)
         self.phase = ""
 

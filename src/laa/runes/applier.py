@@ -117,6 +117,23 @@ class BuildApplier:
         except LCUError as exc:
             log.warning("Applying meta spells failed: %s", exc)
 
+    async def suggest_counters(self, champion_id: int, role: str) -> None:
+        """Log the strongest counters to the intended pick (informational only).
+
+        Called during champ-select planning; also warms the provider's fetch
+        cache so the lock-in apply usually needs no second request.
+        """
+        try:
+            build = await self._provider.get_build(champion_id, role)
+            if build is None or not build.counter_ids:
+                return
+            parts = [f"{self._get_champion_name(cid)} ({winrate:.0%})"
+                     for cid, winrate in build.counter_ids]
+            log.info("Counters to %s worth banning: %s",
+                     self._get_champion_name(champion_id), ", ".join(parts))
+        except Exception as exc:
+            log.warning("Counter suggestion failed: %s", exc)
+
     async def _apply_item_set(self, build: Build, champion_id: int) -> None:
         if build.items is None or build.items.is_empty():
             return
