@@ -31,7 +31,11 @@ It talks only to Riot's **local** League Client (LCU) API on your own machine �
 - **Safety-lock** — hover freely and let it auto-lock your champion a configurable moment (default 1s) before the pick timer expires, so you never get dodged for not locking in time. Locks whatever you're currently hovering.
 - **Summoner spells** — sets your two spells with a Flash-on-D / Flash-on-F preference.
 - **Auto meta runes (the headline feature)** — when your pick locks in, it fetches the current meta rune page *and* summoner spells for that champion and assigned role from op.gg, and writes them to a rune page named `LAA: <Champion>`. Your own pages are never touched, and if the lookup fails your current runes are left exactly as they were — it never blocks your pick.
-- **Auto item sets** — from that same lookup, it also writes a meta item set (starters, core, boots, situational) as an `LAA: <Champion>` build, so the shopping list is waiting for you in the in-game shop. Your own item sets are left untouched.
+- **Auto item sets** — from that same lookup, it also writes a meta item set (starters, core, boots, situational) as an `LAA: <Champion>` build, so the shopping list is waiting for you in the in-game shop — with the **meta skill order** shown right in the core block's title. Your own item sets are left untouched.
+- **Auto-honor** — honors a random teammate after every game (toggleable).
+- **Auto play-again** — optionally returns you to the lobby after each game (never starts the queue for you).
+- **Counter-ban hints** — during champ select planning, the activity log shows the strongest counters to your intended pick, so you know what to fear before bans lock.
+- **Scout lobby** — one click opens an op.gg multisearch for your teammates (or auto-opens each champ select, if you turn that on).
 - **One-time lobby message** — posts a configurable "glhf!" to champ-select chat.
 - **Runs in the background** — minimizes to the system tray with a master pause you can hit from the tray or the window, kept in sync both ways.
 - **Everything is individually toggleable** — turn off any single automation without affecting the rest.
