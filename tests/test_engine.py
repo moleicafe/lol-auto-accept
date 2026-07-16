@@ -10,9 +10,13 @@ CATALOG = ("GET", "/lol-game-data/assets/v1/champion-summary.json")
 class StubApplier:
     def __init__(self):
         self.applied = []
+        self.suggested = []
 
     async def apply(self, cid, role):
         self.applied.append((cid, role))
+
+    async def suggest_counters(self, cid, role):
+        self.suggested.append((cid, role))
 
 
 class StubCatalog:
