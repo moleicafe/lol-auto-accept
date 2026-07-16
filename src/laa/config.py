@@ -35,6 +35,11 @@ class Config:
     auto_runes: bool = True
     auto_items: bool = True
     use_meta_spells: bool = False
+    # post-game
+    auto_honor: bool = True
+    auto_play_again: bool = False
+    # champ select extras
+    multisearch_auto: bool = False
     # ui
     tray_hint_shown: bool = False
     check_updates: bool = True

@@ -62,3 +62,13 @@ def test_auto_items_default_and_roundtrip(tmp_path: Path):
     cfg = Config(auto_items=False)
     save(cfg, tmp_path / "c.json")
     assert load(tmp_path / "c.json").auto_items is False
+
+
+def test_companion_feature_defaults_and_roundtrip(tmp_path: Path):
+    cfg = load(tmp_path / "missing.json")
+    assert cfg.auto_honor is True
+    assert cfg.auto_play_again is False
+    assert cfg.multisearch_auto is False
+    cfg2 = Config(auto_honor=False, auto_play_again=True, multisearch_auto=True)
+    save(cfg2, tmp_path / "c.json")
+    assert load(tmp_path / "c.json") == cfg2
